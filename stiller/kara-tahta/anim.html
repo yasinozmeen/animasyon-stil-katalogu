@@ -1,0 +1,179 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;background:#1f2b26}canvas{display:block}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script src="common.js"></script>
+<script>
+// KARA TAHTA — tebeşir dokusu, silgi izi, ders anlatımı
+const WHITE = '#f3f0e6', YEL = '#f1d35f', FONT = "'Caveat'";
+const TRAY = 1004;
+
+// ---------- Tahta (bir kez) ----------
+const board = mk(W, H);
+{ const c = board.getContext('2d'), r = rng(11);
+  const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#26352e'); g.addColorStop(1, '#1b2621'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+  // büyük ölçekli benekler
+  for (let i = 0; i < 140; i++) { const x = r() * W, y = r() * H, rr = 80 + r() * 260, lt = r() < .5;
+    const gg = c.createRadialGradient(x, y, 0, x, y, rr); gg.addColorStop(0, lt ? 'rgba(120,150,130,0.05)' : 'rgba(0,0,0,0.07)'); gg.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = gg; c.fillRect(x - rr, y - rr, rr * 2, rr * 2); }
+  // eski silgi izleri: yay biçimli çizgili lekeler
+  c.lineCap = 'round';
+  for (let i = 0; i < 16; i++) { const cx = r() * W, cy = r() * (TRAY - 100), R = 160 + r() * 380, a0 = r() * 6, span = .6 + r() * 1.1, al = 0.018 + r() * 0.03;
+    for (let k = 0; k < 26; k++) { const rr = R + (k - 13) * 3.4; c.strokeStyle = `rgba(225,235,225,${al * (0.4 + r() * 0.9)})`; c.lineWidth = 1 + r() * 2.4;
+      c.beginPath(); c.arc(cx, cy, rr, a0 + r() * .08, a0 + span - r() * .1); c.stroke(); } }
+  // yatay silme darbeleri
+  for (let i = 0; i < 10; i++) { const x = r() * W, y = r() * (TRAY - 60), w = 300 + r() * 500, al = 0.015 + r() * 0.022;
+    for (let k = 0; k < 20; k++) { c.strokeStyle = `rgba(225,235,225,${al * r()})`; c.lineWidth = 1 + r() * 2; const yy = y + k * 4 + r() * 2; c.beginPath(); c.moveTo(x, yy); c.bezierCurveTo(x + w * .3, yy - 8, x + w * .7, yy + 8, x + w, yy + (r() - .5) * 6); c.stroke(); } }
+  // ince gren
+  const id = c.getImageData(0, 0, W, H), d = id.data;
+  for (let q = 0; q < d.length; q += 4) { const n = (r() - .5) * 9; d[q] += n; d[q + 1] += n; d[q + 2] += n; } c.putImageData(id, 0, 0);
+  // kenar kararması
+  const v = c.createRadialGradient(960, 480, 520, 960, 540, 1250); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.42)'); c.fillStyle = v; c.fillRect(0, 0, W, H);
+  // ahşap tebeşirlik
+  const wg = c.createLinearGradient(0, TRAY, 0, H); wg.addColorStop(0, '#8a5a34'); wg.addColorStop(.12, '#6d4424'); wg.addColorStop(.55, '#58361c'); wg.addColorStop(1, '#3a2312'); c.fillStyle = wg; c.fillRect(0, TRAY, W, H - TRAY);
+  for (let k = 0; k < 90; k++) { c.strokeStyle = `rgba(${r() < .5 ? '30,15,5' : '160,110,70'},${0.08 + r() * 0.12})`; c.lineWidth = .6 + r() * 1.4; const y = TRAY + 8 + r() * (H - TRAY - 10); c.beginPath(); c.moveTo(0, y); for (let x = 0; x <= W; x += 120) c.lineTo(x, y + Math.sin(x * .004 + k) * 2.5); c.stroke(); }
+  c.fillStyle = 'rgba(0,0,0,0.45)'; c.fillRect(0, TRAY - 3, W, 5);
+  c.fillStyle = 'rgba(255,220,180,0.18)'; c.fillRect(0, TRAY + 2, W, 2);
+  // tebeşirlikteki toz + iki tebeşir
+  for (let i = 0; i < 1400; i++) { c.fillStyle = `rgba(235,235,225,${r() * 0.25})`; c.fillRect(r() * W, TRAY + 6 + r() * 18, 1 + r() * 2, 1 + r() * 1.5); }
+  const chalk = (x, y, l, rot, col) => { c.save(); c.translate(x, y); c.rotate(rot); c.fillStyle = 'rgba(0,0,0,0.35)'; c.beginPath(); c.roundRect(-l / 2 + 4, -6, l, 20, 9); c.fill();
+    const cg = c.createLinearGradient(0, -10, 0, 10); cg.addColorStop(0, col); cg.addColorStop(.6, col); cg.addColorStop(1, 'rgba(120,110,90,1)'); c.fillStyle = cg; c.beginPath(); c.roundRect(-l / 2, -10, l, 20, 9); c.fill(); c.restore(); };
+  chalk(1480, TRAY + 22, 120, -0.04, '#efece2'); chalk(1622, TRAY + 24, 64, 0.08, '#efd66a');
+}
+// ---------- Tebeşir greni (alfa maskesi, bir kez) ----------
+const grain = mk(W, H);
+{ const c = grain.getContext('2d'), id = c.createImageData(W, H), d = id.data, r = rng(5);
+  // yatay yönlü tahta pürüzü: satır bazlı yavaş değişim + nokta boşlukları
+  const row = new Float32Array(H); for (let y = 0; y < H; y++) row[y] = 0.82 + 0.18 * Math.sin(y * 0.9) * Math.sin(y * 0.13 + 2);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const q = (y * W + x) * 4, n = r();
+    let a = row[y] * (0.72 + 0.28 * r()); if (n < 0.16) a *= 0.15 + r() * 0.3; d[q] = d[q + 1] = d[q + 2] = 255; d[q + 3] = Math.min(255, a * 255); }
+  c.putImageData(id, 0, 0);
+}
+const L = mk(W, H), lc = L.getContext('2d');
+// silgi damgası (yumuşak kenarlı) ve bulaşma damgası
+const ER = { w: 250, h: 92 };
+const eStamp = mk(ER.w + 40, ER.h + 40);
+{ const c = eStamp.getContext('2d'); c.filter = 'blur(9px)'; c.fillStyle = '#000'; c.beginPath(); c.roundRect(24, 24, ER.w - 8, ER.h - 8, 20); c.fill(); }
+{ const c = eStamp.getContext('2d'); }
+// silme maskesi + yatay çizgili bulaşma dokusu
+const M = mk(W, H), mc = M.getContext('2d'), SM = mk(W, H), smc = SM.getContext('2d');
+const streak = mk(W, H);
+{ const c = streak.getContext('2d'), r = rng(9); for (let k = 0; k < 2600; k++) { const y = r() * H, x = r() * W, l = 60 + r() * 420; c.strokeStyle = `rgba(235,240,232,${0.15 + r() * 0.85})`; c.lineWidth = .6 + r() * 2.2; c.beginPath(); c.moveTo(x, y); c.lineTo(x + l, y + (r() - .5) * 4); c.stroke(); } }
+
+// ---------- Eylemler ----------
+const acts = [];
+function stroke(path, t0, t1, o = {}) { path.jitter(o.jit ?? 1.8, acts.length * 31 + 7); acts.push({ kind: 'path', path, t0, t1, color: o.color || WHITE, width: o.width || 8, ease: o.ease || (u => u) }); }
+function text(str, x, y, size, t0, t1, o = {}) { acts.push({ kind: 'text', str, x, y, size, t0, t1, color: o.color || WHITE, align: o.align || 'left', rot: o.rot || 0, w8: o.w8 || 700 }); }
+function circ(cx, cy, r, t0, t1, o = {}) { stroke(P().A(cx, cy, r * 1.04, r, -2.2, -2.2 + Math.PI * 2 + 0.45, 60), t0, t1, o); }
+function arrow(x0, y0, x1, y1, t0, t1, bend, o = {}) {
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2 + bend; stroke(P().M(x0, y0).Q(mx, my, x1, y1, 40), t0, t1 - 0.07, o);
+  const a = Math.atan2(y1 - my, x1 - mx), s = o.head || 30;
+  stroke(P().M(x1 + Math.cos(a + 2.6) * s, y1 + Math.sin(a + 2.6) * s).L(x1, y1).L(x1 + Math.cos(a - 2.6) * s, y1 + Math.sin(a - 2.6) * s), t1 - 0.07, t1, o);
+}
+// başlık
+text('Ders 1 · Doğaçlama', 150, 190, 104, 0.3, 1.3, { rot: -0.015 });
+stroke(P().M(146, 222).S([[400, 216], [700, 212], [812, 208]], 16), 1.32, 1.52, { width: 7 });
+// üç adım
+const ROW = 540;
+[[300, 'dinle', 1.6], [880, 'düşün', 2.8], [1470, 'konuş', 3.85]].forEach(([x, w, t0], i) => {
+  circ(x - 70, ROW - 30, 40, t0, t0 + 0.24, { width: 6 });
+  text(String(i + 1), x - 70, ROW - 8, 64, t0 + 0.24, t0 + 0.34, { align: 'center' });
+  text(w, x - 10, ROW, 124, t0 + 0.38, t0 + 0.9);
+});
+arrow(565, ROW - 36, 725, ROW - 36, 2.55, 2.78, -12);
+arrow(1150, ROW - 36, 1310, ROW - 36, 3.6, 3.82, -12);
+// silgi: "düşün" silinir
+const ERASE = { t0: 4.72, t1: 5.95, in0: 4.4, out1: 6.3 };
+const ePath = (() => { const p = P().M(1195, 474);
+  const pts = [[690, 492], [1190, 524], [684, 560], [1192, 470], [700, 522], [1186, 574], [780, 506]];
+  p.S(pts, 22); return p.done(); })();
+// ekleme: dinle → konuş sarı sıçrama oku, sarı halka, alt not
+{ const p = P().M(330, 420).S([[520, 300], [900, 250], [1260, 290], [1420, 400]], 30);
+  stroke(p, 6.2, 6.78, { color: YEL, width: 8, ease: eio2 });
+  stroke(P().M(1392, 356).L(1424, 404).L(1368, 412), 6.78, 6.9, { color: YEL, width: 8 }); }
+stroke(P().A(1560, 505, 210, 92, -2.9, -2.9 + Math.PI * 2 + 0.55, 80), 6.95, 7.35, { color: YEL, width: 7, jit: 3 });
+text('Düşünme, konuş!', 960, 850, 132, 7.45, 8.3, { align: 'center', rot: -0.012 });
+stroke(P().M(600, 890).S([[800, 884], [1100, 880], [1330, 886]], 20), 8.32, 8.5, { color: YEL, width: 8, ease: eout });
+stroke(P().M(650, 912).S([[860, 906], [1120, 904], [1290, 910]], 20), 8.52, 8.66, { color: YEL, width: 6, ease: eout });
+acts.forEach(a => { if (a.kind === 'path') a.path.done(); });
+
+function prepText() { for (const a of acts) if (a.kind === 'text') { ctx.font = `${a.w8} ${a.size}px ${FONT}`; a.w = ctx.measureText(a.str).width; a.xs = [0]; for (let i = 1; i <= a.str.length; i++) a.xs.push(ctx.measureText(a.str.slice(0, i)).width); a.left = a.align === 'center' ? a.x - a.w / 2 : a.x; } }
+function revealX(a, t) { const u = seg(t, a.t0, a.t1), n = a.str.length, f = u * n, i = Math.min(n - 1, Math.floor(f)); return lerp(a.xs[i], a.xs[i + 1], f - i); }
+function headOf(a, t) { if (a.kind === 'text') { const u = seg(t, a.t0, a.t1), f = u * a.str.length; return [a.left + revealX(a, t), a.y - a.size * (0.25 + 0.18 * Math.sin(f * 3.1))]; } const q = a.path.at(a.ease(seg(t, a.t0, a.t1)) * a.path.len); return [q.x, q.y]; }
+
+function drawAct(c, a, t) {
+  if (t < a.t0) return;
+  c.save();
+  if (a.kind === 'text') {
+    const rx = t >= a.t1 ? a.w + 30 : revealX(a, t);
+    c.translate(a.x, a.y); c.rotate(a.rot); c.translate(-a.x, -a.y);
+    c.beginPath(); c.rect(a.left - 30, a.y - a.size * 1.2, rx + 30, a.size * 1.7); c.clip();
+    c.font = `${a.w8} ${a.size}px ${FONT}`; c.textAlign = 'left'; c.fillStyle = a.color;
+    c.globalAlpha = 0.07; c.lineWidth = 10; c.strokeStyle = a.color; c.lineJoin = 'round'; c.strokeText(a.str, a.left, a.y);   // toz hâlesi
+    c.globalAlpha = 1; c.fillText(a.str, a.left, a.y); c.fillText(a.str, a.left + 0.8, a.y - 0.6);
+  } else {
+    const u = a.ease(seg(t, a.t0, a.t1)); c.strokeStyle = a.color; c.lineCap = 'round'; c.lineJoin = 'round';
+    c.globalAlpha = 0.07; c.lineWidth = a.width + 12; c.beginPath(); a.path.trace(c, 0, u * a.path.len); c.stroke();
+    c.globalAlpha = 1; c.lineWidth = a.width; c.beginPath(); a.path.trace(c, 0, u * a.path.len); c.stroke();
+  }
+  c.restore();
+}
+// tebeşir tozu parçacıkları (önceden üretilir)
+const parts = [];
+function buildParticles() {
+  const r = rng(21);
+  for (const a of acts) { for (let tt = a.t0; tt < a.t1; tt += 1 / 90) { if (r() < 0.55) { const [x, y] = headOf(a, tt); parts.push({ t0: tt, x, y, vx: (r() - .5) * 40, vy: 10 + r() * 50, life: .6 + r() * 1.1, s: .8 + r() * 1.8, a: .35 + r() * .45 }); } } }
+  for (let tt = ERASE.t0; tt < ERASE.t1; tt += 1 / 120) { const q = ePath.at(eio2(seg(tt, ERASE.t0, ERASE.t1)) * ePath.len);
+    for (let k = 0; k < 3; k++) parts.push({ t0: tt, x: q.x + (r() - .5) * ER.w, y: q.y + ER.h * (r() - .2) * .6, vx: (r() - .5) * 70, vy: 20 + r() * 60, life: .8 + r() * 1.6, s: 1 + r() * 2.2, a: .18 + r() * .3 }); }
+}
+function eraserPos(t) {
+  if (t < ERASE.t0) { const u = eio2(seg(t, ERASE.in0, ERASE.t0)); const s = ePath.p[0]; return [lerp(2150, s[0], u), lerp(760, s[1], u), 1 - u]; }
+  if (t <= ERASE.t1) { const q = ePath.at(eio2(seg(t, ERASE.t0, ERASE.t1)) * ePath.len); return [q.x, q.y, 0]; }
+  const u = eio2(seg(t, ERASE.t1, ERASE.out1)), e = ePath.p[ePath.p.length - 1]; return [lerp(e[0], 2200, u), lerp(e[1], 860, u), u];
+}
+function drawEraser(x, y, lift) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(-0.05 + Math.sin(x * 0.01) * 0.03);
+  const w = ER.w + 10, h = ER.h + 10;
+  ctx.fillStyle = 'rgba(0,0,0,0.38)'; ctx.filter = 'blur(12px)'; ctx.beginPath(); ctx.roundRect(-w / 2 + 16 + lift * 26, -h / 2 + 22 + lift * 30, w, h, 16); ctx.fill(); ctx.filter = 'none';
+  // keçe tabanı
+  ctx.fillStyle = '#5d605c'; ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2 + 14, w, h - 2, 14); ctx.fill();
+  ctx.fillStyle = 'rgba(235,235,226,0.5)'; ctx.fillRect(-w / 2 + 8, h / 2 - 5, w - 16, 4); ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(-w / 2 + 4, h / 2 - 16, w - 8, 3);
+  // ahşap üst
+  const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2 - 8); g.addColorStop(0, '#b99670'); g.addColorStop(.45, '#9a774f'); g.addColorStop(1, '#6c5033');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(-w / 2, -h / 2, w, h - 18, 14); ctx.fill();
+  ctx.strokeStyle = 'rgba(70,40,15,0.35)'; ctx.lineWidth = 1.4;
+  for (let k = 0; k < 5; k++) { const yy = -h / 2 + 14 + k * 13 + (k % 2) * 3; ctx.globalAlpha = 0.5 + (k % 3) * 0.2; ctx.beginPath(); ctx.moveTo(-w / 2 + 14, yy); ctx.bezierCurveTo(-60, yy + 6 - k, 30, yy - 5 + k, w / 2 - 14, yy + 1); ctx.stroke(); } ctx.globalAlpha = 1;
+  ctx.fillStyle = 'rgba(255,240,210,0.22)'; ctx.beginPath(); ctx.roundRect(-w / 2 + 6, -h / 2 + 4, w - 12, 8, 4); ctx.fill();
+  ctx.restore();
+}
+
+function render(t) {
+  // 1) tebeşir katmanı
+  lc.setTransform(1, 0, 0, 1, 0, 0); lc.globalCompositeOperation = 'source-over'; lc.clearRect(0, 0, W, H);
+  for (const a of acts) if (a.t0 < ERASE.t0) drawAct(lc, a, t);
+  if (t > ERASE.t0) {
+    const u = eio2(seg(t, ERASE.t0, ERASE.t1)), s1 = u * ePath.len;
+    mc.clearRect(0, 0, W, H);
+    for (let s = 0; s <= s1; s += 7) { const q = ePath.at(s); mc.drawImage(eStamp, q.x - ER.w / 2 - 20, q.y - ER.h / 2 - 20); }
+    lc.globalCompositeOperation = 'destination-out'; lc.globalAlpha = 0.9; lc.drawImage(M, 0, 0);
+    smc.globalCompositeOperation = 'source-over'; smc.clearRect(0, 0, W, H); smc.drawImage(M, 0, 0); smc.globalCompositeOperation = 'source-in'; smc.drawImage(streak, 0, 0);
+    lc.globalCompositeOperation = 'source-over'; lc.globalAlpha = 0.16; lc.drawImage(SM, 0, 0);
+    lc.globalAlpha = 1;
+  }
+  for (const a of acts) if (a.t0 >= ERASE.t0) drawAct(lc, a, t);
+  lc.globalCompositeOperation = 'destination-in'; lc.drawImage(grain, 0, 0); lc.globalCompositeOperation = 'source-over';
+  // 2) sahne (yavaş kamera itişi)
+  const s = 1 + 0.045 * eio2(seg(t, 0, 10)), cx = 960, cy = 520;
+  ctx.setTransform(s, 0, 0, s, 960 - cx * s, 540 - cy * s);
+  ctx.drawImage(board, 0, 0); ctx.drawImage(L, 0, 0);
+  // toz
+  for (const p of parts) { const age = t - p.t0; if (age < 0 || age > p.life) continue; const k = age / p.life;
+    ctx.fillStyle = `rgba(240,240,230,${p.a * (1 - k)})`; ctx.fillRect(p.x + p.vx * age, p.y + p.vy * age + 90 * age * age, p.s, p.s); }
+  // silgi
+  if (t > ERASE.in0 && t < ERASE.out1) { const [x, y, lift] = eraserPos(t); drawEraser(x, y, lift); }
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // giriş/çıkış
+  const fi = 1 - seg(t, 0, 0.3), fo = seg(t, 9.4, 10);
+  const a = Math.max(fi, eio2(fo)); if (a > 0) { ctx.fillStyle = `rgba(12,17,15,${a})`; ctx.fillRect(0, 0, W, H); }
+}
+window.ready = loadFont('Caveat', 'Caveat-700', 700).then(() => document.fonts.load(`700 80px ${FONT}`, 'ğüşıöçİĞŞ·')).then(() => { prepText(); buildParticles(); });
+window.draw = ({ t }) => { render(t); return cv.toDataURL('image/jpeg', 0.92).split(',')[1]; };
+</script></body></html>

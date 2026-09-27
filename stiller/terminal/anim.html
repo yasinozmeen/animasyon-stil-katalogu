@@ -1,0 +1,281 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="fonts.css"></head>
+<body style="margin:0;background:#000"><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+//  terminal — CRT hacker terminali. window.draw({t}) → JPEG base64, window.ready
+//  Hikâye: açılış → komut → rastgele konu çekilir → clear → ASCII geri sayım →
+//  kayıt (karakter dalga formu + canlı yazıya dökme) → ^C → CRT kapanışı.
+// ─────────────────────────────────────────────────────────────────────────────
+const W = 1920, H = 1080, DUR = 9.0;
+const cv = document.getElementById('c'); const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, p) => a + (b - a) * p;
+const eOut = x => 1 - Math.pow(1 - x, 3), eIn = x => x * x * x;
+const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+
+const MONO = "'JetBrains Mono', monospace";
+const FS = 32, LH = 52, X0 = 140, Y0 = 118;
+let CW = 16.8, COLS = 96; const ROWS = 16;
+const C = { n: '#8ef7aa', d: '#3d9a5b', b: '#eafff0', bg: '#041209' };
+
+// ── zaman çizelgesi ──────────────────────────────────────────────────────────
+const CMD = 'irticalen --konu rastgele --süre 60';
+const CLR = 'clear';
+function typeTimes(str, t0, seed) { const out = []; let t = t0;
+  for (let i = 0; i < str.length; i++) { out.push(t); t += 0.019 + 0.024 * hash(i * 7.3 + seed) + (str[i] === ' ' ? 0.045 : 0); }
+  return out; }
+const TT1 = typeTimes(CMD, 1.10, 1);
+const ENTER = TT1[TT1.length - 1] + 0.16;
+const DRAW0 = ENTER + 0.22, LOCK = 3.95;
+const TT2 = typeTimes(CLR, 4.30, 9);
+const CLEAR = TT2[TT2.length - 1] + 0.12;
+const CD = [CLEAR + 0.04, CLEAR + 0.54, CLEAR + 1.04], REC = CLEAR + 1.54;
+const STOP = 8.02, SAVED = 8.12, OFF = 8.34;
+const BOOT = [
+  [0.42, [['irticalen-os 2.6  ·  tty1', 'd']]],
+  [0.56, [['[ ', 'd'], ['OK', 'b'], [' ] ', 'd'], ['mikrofon      ', 'n'], ['dahili · 48 kHz · mono', 'd']]],
+  [0.66, [['[ ', 'd'], ['OK', 'b'], [' ] ', 'd'], ['konu havuzu   ', 'n'], ['1.284 başlık yüklendi', 'd']]],
+  [0.76, [['[ ', 'd'], ['OK', 'b'], [' ] ', 'd'], ['sayaç         ', 'n'], ['60 sn · hazırlık 3 sn', 'd']]],
+];
+const TOPICS = ['Çocukluğundan bir yaz günü', 'En sevdiğin ses', 'Hiç gitmediğin bir ülke', 'Kaybettiğin bir eşya',
+  'Yarın dünya bitseydi', 'Bir tartışmayı nasıl kazanırsın', 'İlk maaşını nasıl harcadın', 'Bir şehri kokusuyla anlat'];
+const NFLIP = 19, FLIP = []; for (let k = 0; k <= NFLIP; k++) FLIP.push(DRAW0 + 0.06 + (LOCK - DRAW0 - 0.1) * Math.pow(k / NFLIP, 1.9));
+const TOPIC_OFF = ((7 - NFLIP) % TOPICS.length + TOPICS.length) % TOPICS.length;
+const WORDS = "İstanbul deyince önce simit kokusu gelir, sonra vapurun o yağlı dumanı...".split(' ');
+const WT = []; { let t = REC + 0.30; for (let i = 0; i < WORDS.length; i++) { WT.push(t); t += 0.12 + 0.022 * WORDS[i].length * (0.8 + 0.4 * hash(i + 40)); } }
+const PROMPT = [['yasin@stüdyo', 'n'], [':~$ ', 'd']];
+const PROMPT_W = 16;
+
+// ses olayları (sfx.mjs okur)
+window.SFX = [];
+TT1.forEach((t, i) => SFX.push({ t, k: 'key', v: 0.6 + 0.4 * hash(i) }));
+TT2.forEach((t, i) => SFX.push({ t, k: 'key', v: 0.6 + 0.4 * hash(i + 50) }));
+SFX.push({ t: ENTER, k: 'enter' }, { t: CLEAR - 0.12, k: 'enter' });
+BOOT.forEach(b => SFX.push({ t: b[0], k: 'tick' }));
+FLIP.forEach((t, k) => { if (k < NFLIP) SFX.push({ t, k: 'flip' }); });
+SFX.push({ t: LOCK, k: 'lock' });
+CD.forEach(t => SFX.push({ t, k: 'beep' })); SFX.push({ t: REC, k: 'beepHi' });
+SFX.push({ t: 0.02, k: 'on' }, { t: STOP, k: 'key', v: 1 }, { t: SAVED, k: 'tick' }, { t: OFF, k: 'off' });
+
+// ── ekran içeriği: t anındaki karakter hücreleri ─────────────────────────────
+function build(t) {
+  const it = []; let cur = null;
+  const put = (r, c, str, st = 'n') => { it.push({ r, c, s: str, st }); return c + [...str].length; };
+  const putSegs = (r, c, segs) => { for (const [s, st] of segs) c = put(r, c, s, st); return c; };
+  if (t < 0.40) return { it, cur };
+  if (t < CLEAR) {
+    BOOT.forEach((b, i) => { if (t >= b[0]) putSegs(i, 0, b[1]); });
+    if (t >= 1.00) {
+      let c = putSegs(5, 0, PROMPT); let n = 0; while (n < TT1.length && t >= TT1[n]) n++;
+      c = put(5, c, CMD.slice(0, n), 'b'); if (t < ENTER) cur = { r: 5, c, blink: n === 0 || t - TT1[n - 1] > 0.35 };
+    }
+    if (t >= ENTER + 0.08) {
+      let c = put(7, 0, '» konu çekiliyor ', 'n');
+      if (t < LOCK) put(7, c, '|/-\\'[Math.floor(t * 14) % 4], 'b'); else put(7, c, 'tamam', 'b');
+    }
+    if (t >= DRAW0) {
+      const BW = 52, c0 = 2; const lockOn = t >= LOCK; const flash = lockOn && t < LOCK + 0.16;
+      const bst = flash ? 'b' : 'n';
+      put(8, c0, '┌' + '─'.repeat(BW - 2) + '┐', bst); put(10, c0, '└' + '─'.repeat(BW - 2) + '┘', bst);
+      put(9, c0, '│', bst); put(9, c0 + BW - 1, '│', bst);
+      let k = 0; while (k < NFLIP && t >= FLIP[k + 1]) k++;
+      const topic = lockOn ? TOPICS[7] : TOPICS[(k + TOPIC_OFF) % TOPICS.length];
+      put(9, c0 + 2, '>', 'd');
+      put(9, c0 + 4, ' ' + topic + ' ', lockOn ? 'i' : 'n');
+      if (lockOn) put(9, c0 + BW + 2, '[ kilitlendi ]', flash ? 'b' : 'd');
+    }
+    if (t >= LOCK + 0.20) putSegs(12, 0, [['» hazırlık süresi: ', 'n'], ['3 sn', 'b'], ['  ·  konuşma: ', 'n'], ['60 sn', 'b']]);
+    if (t >= 4.22) {
+      let c = putSegs(14, 0, PROMPT); let n = 0; while (n < TT2.length && t >= TT2[n]) n++;
+      c = put(14, c, CLR.slice(0, n), 'b'); cur = { r: 14, c, blink: n === 0 };
+    }
+    return { it, cur };
+  }
+  if (t < REC) {                                   // ASCII geri sayım
+    const i = t < CD[1] ? 0 : t < CD[2] ? 1 : 2;
+    const digit = ['3', '2', '1'][i];
+    put(0, 0, 'hazırlık', 'd'); put(0, COLS - 26, 'konuşmaya başlamadan önce', 'd');
+    const rev = seg(t, CD[i], CD[i] + 0.09);
+    bigDigit(it, digit, rev);
+    const title = 'Bir şehri kokusuyla anlat.';
+    put(12, Math.floor((COLS - title.length) / 2), title, 'n');
+    const BAR = 40, left = 1 - seg(t, CD[0], REC); const fill = Math.ceil(left * BAR);
+    const bc = Math.floor((COLS - BAR) / 2);
+    put(14, bc, '▓'.repeat(fill), 'n'); put(14, bc + fill, '░'.repeat(BAR - fill), 'd');
+    return { it, cur };
+  }
+  // kayıt
+  const el = Math.max(0, Math.min(t, STOP) - REC);
+  const dotOn = t < STOP ? Math.floor(t * 2.4) % 2 === 0 : false;
+  put(0, 0, '●', dotOn ? 'b' : 'd'); put(0, 2, t < STOP ? 'KAYIT' : 'DURDU', 'b');
+  const ds = Math.floor(el * 10); put(0, 10, '00:0' + Math.floor(ds / 10) + ',' + (ds % 10), 'n');
+  const tl = 'konu: Bir şehri kokusuyla anlat.'; put(0, COLS - tl.length, tl, 'd');
+  put(1, 0, '─'.repeat(COLS), 'd');
+  it.push({ wave: true });
+  put(10, 0, '─'.repeat(COLS), 'd');
+  let c = put(11, 0, '> ', 'd'); let line = 11;
+  for (let i = 0; i < WORDS.length; i++) { if (t < WT[i]) break;
+    const w = WORDS[i] + ' '; if (c + w.length > COLS) { line++; c = 2; } c = put(line, c, w, i === WORDS.length - 1 || t - WT[i] < 0.12 ? 'b' : 'n'); }
+  if (t < STOP) cur = { r: line, c, blink: false };
+  put(15, 0, '[q] bitir    [p] duraklat', 'd');
+  const lvl = t < STOP ? Math.round(-18 + 10 * speech(t)) : -60; const ls = 'giriş ' + (lvl <= -60 ? '--' : lvl) + ' dB';
+  put(15, COLS - 12, ls.padStart(12), 'd');
+  if (t >= STOP) { put(line + 1, 0, '^C', 'b'); }
+  if (t >= SAVED) { putSegs(line + 2, 0, [['» kaydedildi: ', 'n'], ['kayit_027.wav', 'b'], ['  ·  00:01,9', 'd']]); }
+  return { it, cur };
+}
+const DIG = {
+  '3': ['####.', '....#', '....#', '.###.', '....#', '....#', '####.'],
+  '2': ['.###.', '#...#', '....#', '..##.', '.#...', '#....', '#####'],
+  '1': ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+};
+function bigDigit(it, d, rev) {
+  const px = 3, bw = 5 * px, c0 = Math.floor((COLS - bw) / 2) - 1, r0 = 2; const rowsShown = Math.ceil(rev * 8);
+  const rows = DIG[d];
+  for (let y = 0; y < 7; y++) for (let x = 0; x < 5; x++) if (rows[y][x] === '#') {  // gölge önce
+    if (y + 1 < rowsShown) it.push({ r: r0 + y + 1, c: c0 + x * px + 2, s: '░'.repeat(px), st: 'd' });
+  }
+  for (let y = 0; y < Math.min(7, rowsShown); y++) for (let x = 0; x < 5; x++) if (rows[y][x] === '#')
+    it.push({ r: r0 + y, c: c0 + x * px, s: '█'.repeat(px), st: y === rowsShown - 1 && rev < 1 ? 'b' : 'n' });
+}
+// konuşma zarfı (0..1) — kelime zamanlarına bağlı
+function speech(tau) {
+  if (tau < REC || tau > STOP) return 0.02 + 0.02 * hash(Math.floor(tau * 40));
+  let a = 0;
+  for (let i = 0; i < WT.length; i++) { const d = tau - WT[i]; const len = 0.08 + 0.02 * WORDS[i].length;
+    if (d > -0.03 && d < len) a = Math.max(a, Math.sin(Math.PI * clamp((d + 0.03) / (len + 0.03)))); }
+  const syl = 0.55 + 0.45 * Math.abs(Math.sin(tau * Math.PI * 8.5));
+  return clamp(0.05 + a * syl * (0.75 + 0.35 * hash(Math.floor(tau * 40) + 3)));
+}
+
+// ── çizim: karakter ızgarası ─────────────────────────────────────────────────
+let dith = null;
+function cell(g, ch, x, y, col, bgCol) {
+  const m = y + LH / 2, cx = x + CW / 2;
+  switch (ch) {
+    case ' ': return;
+    case '█': g.fillStyle = col; g.fillRect(x, y + 1, CW + 0.6, LH - 2); return;
+    case '▓': g.fillStyle = col; g.globalAlpha *= 0.85; g.fillRect(x + 1, y + 10, CW - 2, LH - 20); g.globalAlpha /= 0.85; return;
+    case '░': g.save(); g.fillStyle = dith[col] || col; g.fillRect(x, y + 1, CW + 0.6, LH - 2); g.restore(); return;
+    case '─': g.fillStyle = col; g.fillRect(x, m - 1, CW + 0.6, 2); return;
+    case '│': g.fillStyle = col; g.fillRect(cx - 1, y, 2, LH + 0.6); return;
+    case '┌': g.fillStyle = col; g.fillRect(cx - 1, m - 1, CW / 2 + 1.6, 2); g.fillRect(cx - 1, m - 1, 2, LH / 2 + 1.6); return;
+    case '┐': g.fillStyle = col; g.fillRect(x, m - 1, CW / 2 + 1, 2); g.fillRect(cx - 1, m - 1, 2, LH / 2 + 1.6); return;
+    case '└': g.fillStyle = col; g.fillRect(cx - 1, m - 1, CW / 2 + 1.6, 2); g.fillRect(cx - 1, y, 2, LH / 2 + 1); return;
+    case '┘': g.fillStyle = col; g.fillRect(x, m - 1, CW / 2 + 1, 2); g.fillRect(cx - 1, y, 2, LH / 2 + 1); return;
+    case '●': g.fillStyle = col; g.beginPath(); g.arc(cx, m + 1, 9, 0, 7); g.fill(); return;
+    case '∞': g.fillStyle = col; g.fillText('oo', x - CW * 0.1, y + LH * 0.7); return;
+    default: g.fillStyle = col; g.fillText(ch, x, y + LH * 0.7);
+  }
+}
+function renderScreen(g, t, alpha) {
+  const { it, cur } = build(t);
+  g.globalAlpha = alpha; g.font = `400 ${FS}px ${MONO}`; g.textBaseline = 'alphabetic';
+  for (const o of it) {
+    if (o.wave) { drawWave(g, t); continue; }
+    const chars = [...o.s]; const y = Y0 + o.r * LH;
+    if (o.st === 'i') { g.fillStyle = C.n; g.fillRect(X0 + o.c * CW, y + 3, chars.length * CW, LH - 6); }
+    const col = o.st === 'i' ? C.bg : C[o.st];
+    g.font = `${o.st === 'b' || o.st === 'i' ? 700 : 400} ${FS}px ${MONO}`;
+    chars.forEach((ch, k) => cell(g, ch, X0 + (o.c + k) * CW, y, col));
+  }
+  if (cur && (!cur.blink || Math.floor(t * 1.9) % 2 === 0)) { g.fillStyle = C.n; g.fillRect(X0 + cur.c * CW, Y0 + cur.r * LH + 4, CW, LH - 8); }
+  g.globalAlpha = 1;
+}
+function drawWave(g, t) {
+  const top = Y0 + 2 * LH, bot = Y0 + 10 * LH, mid = (top + bot) / 2, half = (bot - top) / 2 - 10;
+  const amp = seg(t, REC, REC + 0.25); const tt = Math.min(t, STOP + 0.02);
+  for (let c = 0; c < COLS; c++) {
+    const tau = tt - (COLS - 1 - c) * 0.024;
+    let a = speech(tau) * amp; if (t >= STOP) a *= 1 - seg(t, STOP, STOP + 0.25) * 0.6;
+    const h8 = Math.max(1, Math.round(a * half / (LH / 8)));  // sekizde bir hücre adımlarıyla
+    const h = h8 * LH / 8; const x = X0 + c * CW + 2;
+    g.fillStyle = c >= COLS - 2 && t < STOP ? C.b : C.n; g.fillRect(x, mid - h, CW - 4, h * 2);
+  }
+  g.fillStyle = C.d; g.fillRect(X0, mid - 1, COLS * CW, 2);
+}
+
+// ── CRT katmanları (bir kez üretilir) ────────────────────────────────────────
+const P = mk(W, H), pg = P.getContext('2d');
+const S = mk(W, H), sg = S.getContext('2d');
+const B1 = mk(480, 270), b1 = B1.getContext('2d'), B2 = mk(240, 135), b2 = B2.getContext('2d');
+let BG, SCAN, VIG, NOISE = [], LINE, DOT;
+function prep() {
+  dith = {}; for (const k of ['n', 'd', 'b']) { const cp = mk(6, 6), g = cp.getContext('2d'); g.fillStyle = C[k]; g.fillRect(0, 0, 2, 2); g.fillRect(3, 3, 2, 2);
+    dith[C[k]] = ctx.createPattern(cp, 'repeat'); }
+  BG = mk(W, H); { const g = BG.getContext('2d'); const r = g.createRadialGradient(W / 2, H / 2, 100, W / 2, H / 2, 1150);
+    r.addColorStop(0, '#07170d'); r.addColorStop(0.6, '#041009'); r.addColorStop(1, '#010402'); g.fillStyle = r; g.fillRect(0, 0, W, H); }
+  SCAN = mk(W, H); { const g = SCAN.getContext('2d'); for (let y = 0; y < H; y += 4) { g.fillStyle = 'rgba(0,0,0,0.30)'; g.fillRect(0, y, W, 1.5); g.fillStyle = 'rgba(0,0,0,0.12)'; g.fillRect(0, y + 1.5, W, 0.8); } }
+  VIG = mk(W, H); { const g = VIG.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    g.globalCompositeOperation = 'destination-out'; g.filter = 'blur(18px)'; g.beginPath(); g.roundRect(34, 30, W - 68, H - 60, 90); g.fill();
+    g.filter = 'none'; g.globalCompositeOperation = 'source-over';
+    const r = g.createRadialGradient(W / 2, H / 2, 380, W / 2, H / 2, 1180); r.addColorStop(0, 'rgba(0,0,0,0)'); r.addColorStop(1, 'rgba(0,0,0,0.62)');
+    g.fillStyle = r; g.fillRect(0, 0, W, H);
+    const gl = g.createRadialGradient(560, 220, 10, 560, 220, 700); gl.addColorStop(0, 'rgba(210,255,225,0.045)'); gl.addColorStop(1, 'rgba(210,255,225,0)');
+    g.fillStyle = gl; g.beginPath(); g.ellipse(560, 230, 760, 330, -0.18, 0, 7); g.fill(); }
+  for (let k = 0; k < 4; k++) { const n = mk(512, 512), g = n.getContext('2d'), im = g.createImageData(512, 512);
+    for (let i = 0; i < im.data.length; i += 4) { const v = Math.random() * 255; im.data[i] = v * 0.8; im.data[i + 1] = v; im.data[i + 2] = v * 0.85; im.data[i + 3] = 255; }
+    g.putImageData(im, 0, 0); NOISE.push(n); }
+  LINE = mk(W, 240); { const g = LINE.getContext('2d'); const v = g.createLinearGradient(0, 0, 0, 240);
+    v.addColorStop(0, 'rgba(140,255,170,0)'); v.addColorStop(0.44, 'rgba(140,255,170,0.25)'); v.addColorStop(0.5, 'rgba(240,255,244,1)'); v.addColorStop(0.56, 'rgba(140,255,170,0.25)'); v.addColorStop(1, 'rgba(140,255,170,0)');
+    g.fillStyle = v; g.fillRect(0, 0, W, 240);
+    g.globalCompositeOperation = 'destination-in'; const hz = g.createLinearGradient(0, 0, W, 0);
+    hz.addColorStop(0, 'rgba(0,0,0,0)'); hz.addColorStop(0.06, 'rgba(0,0,0,1)'); hz.addColorStop(0.94, 'rgba(0,0,0,1)'); hz.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = hz; g.fillRect(0, 0, W, 240); }
+  DOT = mk(300, 300); { const g = DOT.getContext('2d'); const r = g.createRadialGradient(150, 150, 0, 150, 150, 150);
+    r.addColorStop(0, 'rgba(245,255,248,1)'); r.addColorStop(0.08, 'rgba(200,255,215,0.9)'); r.addColorStop(0.3, 'rgba(120,255,160,0.25)'); r.addColorStop(1, 'rgba(120,255,160,0)');
+    g.fillStyle = r; g.fillRect(0, 0, 300, 300); }
+  ctx.font = `400 ${FS}px ${MONO}`; CW = ctx.measureText('M').width; COLS = Math.floor((W - 2 * X0) / CW);
+}
+
+// ── kare ─────────────────────────────────────────────────────────────────────
+function crt(t) {
+  let sx = 1, sy = 1, line = 0, flash = 0, dot = 0;
+  if (t < 0.10) { sx = eOut(seg(t, 0, 0.10)); sy = 0.004; line = 1; }
+  else if (t < 0.46) { const p = seg(t, 0.10, 0.42); sy = lerp(0.004, 1, eOut(p)); line = 1 - seg(t, 0.10, 0.26); flash = 0.38 * (1 - seg(t, 0.10, 0.7)); }
+  else if (t < 0.7) flash = 0.38 * (1 - seg(t, 0.10, 0.7));
+  if (t >= OFF) {
+    const p = seg(t, OFF, OFF + 0.17); sy = lerp(1, 0.003, eIn(p)); flash = 0.7 * p; line = seg(t, OFF + 0.08, OFF + 0.17);
+    const q = seg(t, OFF + 0.19, OFF + 0.36); sx = 1 - eIn(q) * 0.998; if (q >= 1) line = 0;
+    dot = t < OFF + 0.36 ? q * q : 1 - eOut(seg(t, OFF + 0.36, 8.97));
+  }
+  return { sx, sy, line, flash, dot };
+}
+function render(t) {
+  // fosfor: geçmiş karelerin sönen izi + şimdiki kare
+  pg.clearRect(0, 0, W, H);
+  for (const [lag, a] of [[0.12, 0.10], [0.08, 0.17], [0.04, 0.30]]) if (t - lag > 0.4) renderScreen(pg, t - lag, a);
+  renderScreen(pg, t, 1);
+  b1.clearRect(0, 0, 480, 270); b1.filter = 'blur(2px)'; b1.drawImage(P, 0, 0, 480, 270); b1.filter = 'none';
+  b2.clearRect(0, 0, 240, 135); b2.filter = 'blur(3px)'; b2.drawImage(B1, 0, 0, 240, 135); b2.filter = 'none';
+  sg.globalCompositeOperation = 'source-over'; sg.globalAlpha = 1; sg.drawImage(BG, 0, 0);
+  // yuvarlanan tarama bandı
+  const ry = ((t * 0.18) % 1) * (H + 400) - 200; const rb = sg.createLinearGradient(0, ry - 160, 0, ry + 160);
+  rb.addColorStop(0, 'rgba(120,255,160,0)'); rb.addColorStop(0.5, 'rgba(120,255,160,0.035)'); rb.addColorStop(1, 'rgba(120,255,160,0)');
+  sg.fillStyle = rb; sg.fillRect(0, ry - 160, W, 320);
+  sg.drawImage(P, 0, 0);
+  sg.globalCompositeOperation = 'lighter';
+  sg.globalAlpha = 0.55; sg.drawImage(B1, 0, 0, W, H); sg.globalAlpha = 0.45; sg.drawImage(B2, 0, 0, W, H);
+  const f = Math.floor(t * 30); sg.globalAlpha = 0.045; const nz = NOISE[f % 4];
+  for (let y = 0; y < H; y += 512) for (let x = 0; x < W; x += 512) sg.drawImage(nz, x, y);
+  sg.globalAlpha = 1; sg.globalCompositeOperation = 'source-over';
+  sg.fillStyle = `rgba(0,0,0,${0.03 + 0.035 * hash(f)})`; sg.fillRect(0, 0, W, H);   // titreme
+
+  const s = crt(t);
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(s.sx, s.sy); ctx.translate(-W / 2, -H / 2);
+  ctx.drawImage(S, 0, 0);
+  if (s.flash > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(150,255,180,${s.flash})`; ctx.fillRect(0, 0, W, H); ctx.globalCompositeOperation = 'source-over'; }
+  ctx.restore();
+  if (s.line > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = s.line; const lw = W * Math.max(s.sx, 0.002);
+    ctx.drawImage(LINE, W / 2 - lw / 2, H / 2 - 120, lw, 240); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
+  if (s.dot > 0) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = s.dot; ctx.drawImage(DOT, W / 2 - 150, H / 2 - 150); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
+  ctx.drawImage(SCAN, 0, 0); ctx.drawImage(VIG, 0, 0);
+}
+window.draw = function (job) { render(job.t); return cv.toDataURL('image/jpeg', job.q || 0.92).split(',')[1]; };
+window.ready = document.fonts.ready.then(() => Promise.all([
+  document.fonts.load(`400 ${FS}px 'JetBrains Mono'`, 'abcçğıöşüİĞŞÇÖÜ'), document.fonts.load(`700 ${FS}px 'JetBrains Mono'`, 'abcçğıöşüİĞŞÇÖÜ')])).then(prep);
+</script></body></html>

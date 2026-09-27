@@ -1,0 +1,211 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;background:#15437f}canvas{display:block}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script src="common.js"></script>
+<script>
+// BLUEPRINT — mikrofonun teknik resmi: önden görünüş, kesit A–A, üstten görünüş, ölçüler, antet
+const LN = '232,241,255';                      // çizgi rengi (rgb)
+const COND = "'Barlow Condensed'", MONO = "'IBM Plex Mono'";
+const CM = 30;                                 // 1 cm = 30 px
+const FX = 520, SX = 1150;                     // görünüş eksenleri
+const G = { top: 190, hc: 280, hr: 90, ringT: 350, ringB: 380, ringW: 64, bodyB: 730, bw0: 58, bw1: 46, capB: 750, cw: 40 };
+
+// ---------- Kâğıt (bir kez) ----------
+const paper = mk(W, H);
+{ const c = paper.getContext('2d'), r = rng(4);
+  const g = c.createRadialGradient(900, 480, 100, 960, 540, 1200); g.addColorStop(0, '#1f5aa6'); g.addColorStop(1, '#123b75'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+  for (let i = 0; i < 120; i++) { const x = r() * W, y = r() * H, rr = 60 + r() * 300, lt = r() < .5;
+    const gg = c.createRadialGradient(x, y, 0, x, y, rr); gg.addColorStop(0, lt ? 'rgba(90,150,230,0.07)' : 'rgba(5,20,60,0.08)'); gg.addColorStop(1, 'rgba(0,0,0,0)'); c.fillStyle = gg; c.fillRect(x - rr, y - rr, rr * 2, rr * 2); }
+  const id = c.getImageData(0, 0, W, H), d = id.data;
+  for (let q = 0; q < d.length; q += 4) { const n = (r() - .5) * 10; d[q] += n; d[q + 1] += n; d[q + 2] += n * 1.2; } c.putImageData(id, 0, 0);
+  c.strokeStyle = 'rgba(200,225,255,0.05)'; c.lineWidth = 1;
+  for (let i = 0; i < 700; i++) { const x = r() * W, y = r() * H, a = r() * Math.PI, l = 5 + r() * 20; c.beginPath(); c.moveTo(x, y); c.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke(); }
+}
+const L = mk(W, H), lc = L.getContext('2d'), GL = mk(W / 4, H / 4), gc = GL.getContext('2d');
+
+// ---------- Eylem sistemi ----------
+const acts = [];
+function line(path, t0, t1, o = {}) { acts.push({ kind: 'path', path: path.done(), t0, t1, w: o.w ?? 1.5, a: o.a ?? 0.9, dash: o.dash, ease: o.ease || eio2, clip: o.clip }); }
+function txt(str, x, y, size, t0, o = {}) { acts.push({ kind: 'text', str, x, y, size, t0, t1: t0 + (o.dur ?? str.length * 0.028), font: o.font || COND, w8: o.w8 || 500, it: o.it ?? true, align: o.align || 'center', rot: o.rot || 0, a: o.a ?? 0.95, ls: o.ls ?? 1 }); }
+function arrowHead(x, y, ang, t0) { acts.push({ kind: 'arrow', x, y, ang, t0, t1: t0 + 0.18 }); }
+function hatch(clipFn, t0, t1, o = {}) { acts.push({ kind: 'hatch', clipFn, t0, t1, gap: o.gap || 11, ang: o.ang ?? Math.PI / 4, box: o.box, a: o.a ?? 0.75, cross: o.cross }); }
+const CEN = [26, 6, 4, 6];                     // eksen çizgisi (kesik-nokta)
+const HID = [10, 7];
+
+// ölçü: dikey
+function dimV(x, y0, y1, fromX, t0, label, o = {}) {
+  const side = Math.sign(x - fromX) || -1;
+  line(P().M(fromX + side * 6, y0).L(x + side * 12, y0), t0, t0 + 0.2, { w: 1.1, a: .8 });
+  line(P().M(fromX + side * 6, y1).L(x + side * 12, y1), t0 + 0.05, t0 + 0.25, { w: 1.1, a: .8 });
+  const ym = (y0 + y1) / 2;
+  line(P().M(x, ym).L(x, y0 + 1), t0 + 0.2, t0 + 0.45, { w: 1.2 }); line(P().M(x, ym).L(x, y1 - 1), t0 + 0.2, t0 + 0.45, { w: 1.2 });
+  arrowHead(x, y0, -Math.PI / 2, t0 + 0.43); arrowHead(x, y1, Math.PI / 2, t0 + 0.43);
+  txt(label, x - 12 * (o.flip ? -1 : 1), ym, 30, t0 + 0.5, { rot: -Math.PI / 2 });
+}
+// ölçü: yatay
+function dimH(y, x0, x1, fromY, t0, label, o = {}) {
+  const side = Math.sign(y - fromY) || -1;
+  line(P().M(x0, fromY + side * 6).L(x0, y + side * 12), t0, t0 + 0.2, { w: 1.1, a: .8 });
+  line(P().M(x1, fromY + side * 6).L(x1, y + side * 12), t0 + 0.05, t0 + 0.25, { w: 1.1, a: .8 });
+  const xm = (x0 + x1) / 2;
+  line(P().M(xm, y).L(x0 + 1, y), t0 + 0.2, t0 + 0.45, { w: 1.2 }); line(P().M(xm, y).L(x1 - 1, y), t0 + 0.2, t0 + 0.45, { w: 1.2 });
+  arrowHead(x0, y, Math.PI, t0 + 0.43); arrowHead(x1, y, 0, t0 + 0.43);
+  txt(label, xm + (o.dx || 0), y - 12, 30, t0 + 0.5);
+}
+// etiket oku (leader)
+function leader(x0, y0, x1, y1, x2, label, t0, align = 'left') {
+  acts.push({ kind: 'dot', x: x0, y: y0, t0, t1: t0 + 0.12 });
+  line(P().M(x0, y0).L(x1, y1).L(x2, y1), t0 + 0.05, t0 + 0.4, { w: 1.1 });
+  txt(label, align === 'left' ? x2 + 10 : x2 - 10, y1 + 9, 26, t0 + 0.38, { align, font: MONO, it: false, w8: 400, ls: 0.5 });
+}
+
+// dış hat yolları (önden ve kesit için aynı)
+function outline(cx, inset = 0) {
+  const k = inset, a0 = Math.asin((G.ringT - G.hc) / (G.hr - k));
+  const p = P().A(cx, G.hc, G.hr - k, G.hr - k, Math.PI - a0, 2 * Math.PI + a0, 90);
+  return p;
+}
+function bodyPoly(cx, k = 0) {   // gövde+halka+kapak, dış hat (kapalı çokgen)
+  return [[cx - G.ringW + k, G.ringT + k], [cx + G.ringW - k, G.ringT + k], [cx + G.ringW - k, G.ringB], [cx + G.bw0 - k, G.ringB], [cx + G.bw1 - k, G.bodyB - k * 0], [cx + G.cw - k, G.capB - k], [cx - G.cw + k, G.capB - k], [cx - G.bw1 + k, G.bodyB], [cx - G.bw0 + k, G.ringB], [cx - G.ringW + k, G.ringB]];
+}
+function polyPath(pts) { const p = P().M(...pts[0]); for (let i = 1; i < pts.length; i++) p.L(...pts[i]); return p.L(...pts[0]); }
+
+// ===== 1) ÖNDEN GÖRÜNÜŞ =====
+line(P().M(FX, 150).L(FX, 790), 0.3, 1.0, { w: 1.1, a: .6, dash: CEN });
+line(P().M(FX - 130, G.hc).L(FX + 130, G.hc), 0.45, 1.05, { w: 1.1, a: .6, dash: CEN });
+line(outline(FX), 0.9, 1.6, { w: 3 });
+line(polyPath(bodyPoly(FX)), 1.35, 2.25, { w: 3 });
+line(P().M(FX - G.bw0, G.ringB + 18).L(FX + G.bw0 - 1, G.ringB + 18), 2.0, 2.2, { w: 1.4 });            // gövde çizgisi
+line(P().M(FX - G.bw1, G.bodyB - 20).L(FX + G.bw1, G.bodyB - 20), 2.05, 2.25, { w: 1.4 });
+{ const sw = P().M(FX - 12, 470); sw.L(FX + 12, 470).L(FX + 12, 520).L(FX - 12, 520).L(FX - 12, 470); line(sw, 2.2, 2.45, { w: 1.6 }); }   // anahtar
+hatch(c => { c.beginPath(); c.arc(FX, G.hc, G.hr - 7, 0, 7); c.clip(); c.beginPath(); c.rect(FX - 200, 0, 400, G.ringT - 4); c.clip(); }, 2.15, 2.75, { gap: 12, ang: Math.PI / 4, cross: true, a: .42, box: [FX - 100, 180, FX + 100, 352] });   // ızgara
+// kesit düzlemi işareti A–A
+function cutMark(y, t0, up) { line(P().M(FX, y).L(FX, y + (up ? -34 : 34)), t0, t0 + 0.15, { w: 4.5 });
+  line(P().M(FX, y + (up ? -26 : 26)).L(FX + 50, y + (up ? -26 : 26)), t0 + 0.12, t0 + 0.3, { w: 1.6 }); arrowHead(FX + 56, y + (up ? -26 : 26), 0, t0 + 0.28);
+  txt('A', FX + 80, y + (up ? -16 : 38), 36, t0 + 0.3, { w8: 600 }); }
+cutMark(128, 2.6, true); cutMark(812, 2.7, false);
+dimV(FX - 180, G.top, G.capB, FX - 50, 2.8, (((G.capB - G.top) / CM).toFixed(1)).replace('.', ',') + ' cm');
+dimH(142, FX - G.hr, FX + G.hr, G.hc, 3.05, 'Ø ' + (2 * G.hr / CM).toFixed(1).replace('.', ',') + ' cm', { dx: -120 });
+txt('ÖNDEN GÖRÜNÜŞ', FX, 905, 34, 3.5, { w8: 600, it: false, ls: 3 });
+line(P().M(FX - 118, 918).L(FX + 118, 918), 3.8, 4.0, { w: 1.6 });
+
+// ===== 2) İZDÜŞÜM ÇİZGİLERİ =====
+[G.top, G.hc, G.ringT, G.ringB, G.capB].forEach((y, i) => line(P().M(FX + 110, y).L(1760, y), 4.0 + i * 0.05, 4.9 + i * 0.05, { w: 1, a: .42, dash: [3, 5] }));
+
+// ===== 3) KESİT A–A =====
+line(P().M(SX, 150).L(SX, 790), 4.4, 5.0, { w: 1.1, a: .6, dash: CEN });
+line(outline(SX), 4.6, 5.2, { w: 3 });
+line(outline(SX, 9), 4.75, 5.3, { w: 1.2, dash: [5, 4] });                     // ızgara teli (kesitte)
+line(polyPath(bodyPoly(SX)), 4.9, 5.7, { w: 3 });
+const inner = bodyPoly(SX, 9);
+line(polyPath(inner), 5.1, 5.8, { w: 1.6 });
+hatch(c => { const o = bodyPoly(SX), i2 = bodyPoly(SX, 9); c.beginPath(); c.moveTo(...o[0]); o.forEach(q => c.lineTo(...q)); c.closePath(); c.moveTo(...i2[0]); i2.forEach(q => c.lineTo(...q)); c.closePath(); c.clip('evenodd'); }, 5.7, 6.2, { gap: 9, box: [SX - 70, 340, SX + 70, 760] });
+// kapsül + amortisör + kablo kanalı + XLR
+{ const cy0 = 250, cy1 = 302, cw = 51;
+  line(polyPath([[SX - cw, cy0], [SX + cw, cy0], [SX + cw, cy1], [SX - cw, cy1]]), 5.4, 5.8, { w: 2.2 });
+  hatch(c => { c.beginPath(); c.rect(SX - cw, cy0, cw * 2, cy1 - cy0); c.clip(); }, 5.8, 6.1, { gap: 7, ang: -Math.PI / 4, box: [SX - cw, cy0, SX + cw, cy1], cross: true, a: .55 });
+  line(P().M(SX - 30, cy1).L(SX - 22, 330).L(SX - 30, 350).L(SX - 22, 370).L(SX - 30, 392), 5.6, 5.9, { w: 1.3 });
+  line(P().M(SX + 30, cy1).L(SX + 22, 330).L(SX + 30, 350).L(SX + 22, 370).L(SX + 30, 392), 5.62, 5.92, { w: 1.3 });
+  line(P().M(SX - 8, 392).L(SX - 8, 690), 5.8, 6.1, { w: 1.2, dash: HID }); line(P().M(SX + 8, 392).L(SX + 8, 690), 5.82, 6.12, { w: 1.2, dash: HID });
+  line(polyPath([[SX - 30, 690], [SX + 30, 690], [SX + 30, 741], [SX - 30, 741]]), 5.9, 6.15, { w: 1.8 });
+  [-14, 0, 14].forEach((dx, i) => line(P().M(SX + dx, 700).L(SX + dx, 732), 6.1 + i * .03, 6.2 + i * .03, { w: 3 })); }
+dimV(SX + 170, G.top, G.ringB, SX + G.hr, 6.3, (((G.ringB - G.top) / CM).toFixed(1)).replace('.', ',') + ' cm', { flip: true });
+dimV(SX + 170, G.ringB, G.capB, SX + 60, 6.45, (((G.capB - G.ringB) / CM).toFixed(1)).replace('.', ',') + ' cm', { flip: true });
+leader(SX + 30, 276, SX + 190, 206, SX + 215, 'KAPSÜL Ø 3,4', 6.7);
+leader(SX + 54, 460, SX + 220, 430, SX + 250, 'ET 0,3 cm', 6.85);
+leader(SX + 14, 716, SX + 220, 670, SX + 250, 'XLR-3', 7.0);
+leader(SX - 70, 230, SX - 170, 200, SX - 200, 'IZGARA', 6.95, 'right');
+dimH(G.capB + 52, SX - G.cw, SX + G.cw, G.capB, 6.6, 'Ø ' + (2 * G.cw / CM).toFixed(1).replace('.', ',') + ' cm', { dx: -120 });
+txt('KESİT A–A', SX, 905, 34, 6.2, { w8: 600, it: false, ls: 3 });
+line(P().M(SX - 86, 918).L(SX + 86, 918), 6.5, 6.7, { w: 1.6 });
+
+// ===== 4) ÜSTTEN GÖRÜNÜŞ =====
+const TX = 1680, TY = 330;
+line(P().M(TX - 125, TY).L(TX + 125, TY), 5.9, 6.3, { w: 1.1, a: .6, dash: CEN });
+line(P().M(TX, TY - 125).L(TX, TY + 125), 5.95, 6.35, { w: 1.1, a: .6, dash: CEN });
+line(P().A(TX, TY, G.hr, G.hr, -Math.PI / 2, Math.PI * 1.5, 90), 6.0, 6.5, { w: 3 });
+line(P().A(TX, TY, G.ringW, G.ringW, -Math.PI / 2, Math.PI * 1.5, 80), 6.1, 6.55, { w: 1.4, dash: HID });
+line(P().A(TX, TY, 30, 30, -Math.PI / 2, Math.PI * 1.5, 40), 6.2, 6.5, { w: 1.4 });
+dimH(TY - G.hr - 32, TX - G.hr, TX + G.hr, TY - G.hr, 6.55, 'Ø 6,0 cm');
+txt('ÜSTTEN GÖRÜNÜŞ', TX, 490, 34, 6.6, { w8: 600, it: false, ls: 3 });
+line(P().M(TX - 124, 503).L(TX + 124, 503), 6.9, 7.1, { w: 1.6 });
+
+// ===== 5) ÇERÇEVE + ANTET =====
+line(polyPath([[40, 40], [1880, 40], [1880, 1040], [40, 1040]]), 3.7, 4.7, { w: 1.2, a: .7 });
+line(polyPath([[62, 62], [1858, 62], [1858, 1018], [62, 1018]]), 3.8, 4.8, { w: 2.6 });
+for (let i = 1; i < 8; i++) { const x = 62 + i * (1796 / 8); line(P().M(x, 40).L(x, 62), 4.3 + i * .02, 4.4 + i * .02, { w: 1.2, a: .7 }); line(P().M(x, 1018).L(x, 1040), 4.3 + i * .02, 4.4 + i * .02, { w: 1.2, a: .7 }); }
+for (let i = 0; i < 8; i++) { const x = 62 + (i + .5) * (1796 / 8); txt(String(i + 1), x, 58, 17, 4.5 + i * .03, { font: MONO, it: false, w8: 500, dur: .05 }); txt(String(i + 1), x, 1036, 17, 4.5 + i * .03, { font: MONO, it: false, w8: 500, dur: .05 }); }
+'ABCD'.split('').forEach((ch, i) => { const y = 62 + (i + .5) * (956 / 4); txt(ch, 51, y + 6, 17, 4.6 + i * .04, { font: MONO, it: false, w8: 500, dur: .05 }); txt(ch, 1869, y + 6, 17, 4.6 + i * .04, { font: MONO, it: false, w8: 500, dur: .05 }); });
+const TB = { x0: 1318, x1: 1858, y0: 850, y1: 1018 };
+line(polyPath([[TB.x0, TB.y0], [TB.x1, TB.y0], [TB.x1, TB.y1], [TB.x0, TB.y1]]), 7.2, 7.6, { w: 2.6 });
+line(P().M(TB.x0, 906).L(TB.x1, 906), 7.45, 7.65, { w: 1.4 }); line(P().M(TB.x0, 962).L(TB.x1, 962), 7.5, 7.7, { w: 1.4 });
+[1498, 1678].forEach((x, i) => line(P().M(x, 906).L(x, TB.y1), 7.55 + i * .05, 7.75 + i * .05, { w: 1.4 }));
+txt('İRTİCALEN · STÜDYO MİKROFONU', TB.x0 + 18, 890, 36, 7.6, { align: 'left', w8: 600, it: false, ls: 2 });
+const cells = [['ÇİZİM NO', 'İRT-001'], ['ÖLÇEK', '1 : 2'], ['BİRİM', 'cm'], ['MALZEME', 'Alüminyum'], ['TARİH', '27.09.2026'], ['PAFTA', '1 / 1']];
+cells.forEach(([k, v], i) => { const col = i % 3, row = Math.floor(i / 3), x = [TB.x0, 1498, 1678][col] + 12, y = 906 + row * 56;
+  txt(k, x, y + 18, 14, 7.75 + i * .06, { align: 'left', font: MONO, it: false, w8: 500, a: .7, ls: 1.5, dur: .08 });
+  txt(v, x, y + 47, 27, 7.85 + i * .07, { align: 'left', w8: 500, it: false, dur: .18 }); });
+
+acts.sort((a, b) => a.t0 - b.t0);
+
+// ---------- Çizim ----------
+function drawAct(c, a, t) {
+  if (t < a.t0) return;
+  const u = seg(t, a.t0, a.t1);
+  c.save();
+  if (a.kind === 'path') {
+    const e = a.ease(u); c.strokeStyle = `rgba(${LN},${a.a})`; c.lineWidth = a.w; c.lineCap = a.dash ? 'butt' : 'round'; c.lineJoin = 'round';
+    if (a.dash) c.setLineDash(a.dash);
+    c.beginPath(); a.path.trace(c, 0, e * a.path.len); c.stroke();
+    if (u < 1 && u > 0 && !a.dash && a.w > 2) { const q = a.path.at(e * a.path.len); c.fillStyle = `rgba(${LN},0.9)`; c.beginPath(); c.arc(q.x, q.y, 3.2, 0, 7); c.fill(); }   // çizici uç
+  } else if (a.kind === 'text') {
+    const n = Math.ceil(u * a.str.length); if (n <= 0) { c.restore(); return; }
+    c.translate(a.x, a.y); c.rotate(a.rot); c.font = `${a.it ? 'italic ' : ''}${a.w8} ${a.size}px ${a.font}`; c.letterSpacing = a.ls + 'px';
+    c.textAlign = a.align; c.textBaseline = a.rot ? 'bottom' : 'alphabetic'; c.fillStyle = `rgba(${LN},${a.a})`;
+    if (a.align === 'center') { const w = c.measureText(a.str).width; c.textAlign = 'left'; c.fillText(a.str.slice(0, n), -w / 2, 0); }
+    else if (a.align === 'right') { const w = c.measureText(a.str).width; c.textAlign = 'left'; c.fillText(a.str.slice(0, n), -w, 0); }
+    else c.fillText(a.str.slice(0, n), 0, 0);
+  } else if (a.kind === 'arrow') {
+    const s = eback(u, 3); c.translate(a.x, a.y); c.rotate(a.ang); c.scale(s, s); c.fillStyle = `rgba(${LN},0.95)`;
+    c.beginPath(); c.moveTo(0, 0); c.lineTo(-20, -5.5); c.lineTo(-20, 5.5); c.closePath(); c.fill();
+  } else if (a.kind === 'dot') {
+    const s = eback(u, 3); c.fillStyle = `rgba(${LN},0.95)`; c.beginPath(); c.arc(a.x, a.y, 4.5 * s, 0, 7); c.fill();
+  } else if (a.kind === 'hatch') {
+    const [x0, y0, x1, y1] = a.box; a.clipFn(c);
+    // tarama, kutunun sol-üstünden sağ-altına doğru süpürerek açılır
+    const e = eio2(u), sweep = lerp(x0 - 300, x1 + 700, e);
+    c.beginPath(); c.moveTo(x0 - 400, y0 - 400); c.lineTo(sweep + (y1 - y0) * 0.5, y0 - 400); c.lineTo(sweep - (y1 - y0) * 0.5 - 200, y1 + 400); c.lineTo(x0 - 400, y1 + 400); c.closePath(); c.clip();
+    c.strokeStyle = `rgba(${LN},${a.a})`; c.lineWidth = 1.1;
+    const dirs = a.cross ? [a.ang, -a.ang] : [a.ang];
+    for (const ang of dirs) { const dx = Math.cos(ang), dy = Math.sin(ang), nx = -dy, ny = dx, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, R = Math.hypot(x1 - x0, y1 - y0);
+      c.beginPath(); for (let k = -R; k <= R; k += a.gap) { c.moveTo(cx + nx * k - dx * R, cy + ny * k - dy * R); c.lineTo(cx + nx * k + dx * R, cy + ny * k + dy * R); } c.stroke(); }
+  }
+  c.restore();
+}
+function drawGrid(c) {
+  c.lineWidth = 1;
+  for (let x = -240; x <= W + 240; x += 24) { c.strokeStyle = ((x % 120) + 120) % 120 === 0 ? 'rgba(200,225,255,0.13)' : 'rgba(200,225,255,0.055)'; c.beginPath(); c.moveTo(x + .5, -240); c.lineTo(x + .5, H + 240); c.stroke(); }
+  for (let y = -240; y <= H + 240; y += 24) { c.strokeStyle = ((y % 120) + 120) % 120 === 0 ? 'rgba(200,225,255,0.13)' : 'rgba(200,225,255,0.055)'; c.beginPath(); c.moveTo(-240, y + .5); c.lineTo(W + 240, y + .5); c.stroke(); }
+}
+function cam(t) {
+  const u = eio(seg(t, 3.55, 4.85)); let s = lerp(1.45, 1.0, u), cx = lerp(560, 960, u), cy = lerp(482, 540, u);
+  s *= 1 + 0.018 * seg(t, 4.85, 10) + 0.02 * (1 - u) * seg(t, 0, 3.55);
+  return [s, cx, cy];
+}
+function render(t) {
+  const [s, cx, cy] = cam(t), tf = [s, 0, 0, s, 960 - cx * s, 540 - cy * s];
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.fillStyle = '#123b75'; ctx.fillRect(0, 0, W, H); ctx.setTransform(...tf); ctx.drawImage(paper, -160, -90, W + 320, H + 180); drawGrid(ctx);
+  lc.setTransform(1, 0, 0, 1, 0, 0); lc.clearRect(0, 0, W, H); lc.setTransform(...tf);
+  for (const a of acts) drawAct(lc, a, t);
+  // cyanotype ışıması: küçültülmüş katman bulanık görünür
+  gc.clearRect(0, 0, GL.width, GL.height); gc.filter = 'blur(2px)'; gc.drawImage(L, 0, 0, GL.width, GL.height); gc.filter = 'none';
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalAlpha = 0.55; ctx.globalCompositeOperation = 'lighter'; ctx.drawImage(GL, 0, 0, W, H); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.drawImage(L, 0, 0);
+  const v = ctx.createRadialGradient(960, 540, 600, 960, 540, 1200); v.addColorStop(0, 'rgba(0,10,40,0)'); v.addColorStop(1, 'rgba(0,10,40,0.35)'); ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  const a = Math.max(1 - seg(t, 0, 0.35), eio2(seg(t, 9.35, 10))); if (a > 0) { ctx.fillStyle = `rgba(9,33,70,${a})`; ctx.fillRect(0, 0, W, H); }
+}
+window.ready = Promise.all([loadFont('Barlow Condensed', 'BarlowCondensed-500i', 500, 'italic').catch(() => {}), loadFont('Barlow Condensed', 'BarlowCondensed-500', 500), loadFont('Barlow Condensed', 'BarlowCondensed-600', 600), loadFont('IBM Plex Mono', 'IBMPlexMono-400', 400), loadFont('IBM Plex Mono', 'IBMPlexMono-500', 500)])
+  .then(() => document.fonts.load(`600 30px ${COND}`, 'İÇŞĞÜÖ'));
+window.draw = ({ t }) => { render(t); return cv.toDataURL('image/jpeg', 0.92).split(',')[1]; };
+</script></body></html>

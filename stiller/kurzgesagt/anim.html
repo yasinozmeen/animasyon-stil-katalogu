@@ -1,0 +1,342 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style id="fonts">
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 500;
+  font-stretch: 100%;
+  font-display: block;
+  src: url(fonts/fredoka_v17_X7n64b87HvSqjb_WIi2yDCRwoQ_k7367_DWg89XgHPyhRMw.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 500;
+  font-stretch: 100%;
+  font-display: block;
+  src: url(fonts/fredoka_v17_X7n64b87HvSqjb_WIi2yDCRwoQ_k7367_DWu89XgHPyh.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 600;
+  font-stretch: 100%;
+  font-display: block;
+  src: url(fonts/fredoka_v17_X7n64b87HvSqjb_WIi2yDCRwoQ_k7367_DWg89XgHPyhRMw.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 600;
+  font-stretch: 100%;
+  font-display: block;
+  src: url(fonts/fredoka_v17_X7n64b87HvSqjb_WIi2yDCRwoQ_k7367_DWu89XgHPyh.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 700;
+  font-stretch: 100%;
+  font-display: block;
+  src: url(fonts/fredoka_v17_X7n64b87HvSqjb_WIi2yDCRwoQ_k7367_DWg89XgHPyhRMw.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 700;
+  font-stretch: 100%;
+  font-display: block;
+  src: url(fonts/fredoka_v17_X7n64b87HvSqjb_WIi2yDCRwoQ_k7367_DWu89XgHPyh.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<style>html,body{margin:0;background:#0b1233}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// Kurzgesagt-tarzı bilim anlatımı: "Uzayda ses yayılmaz — havada 343 m/s koşar."
+// window.draw({t}) → JPEG base64. Süre 9.5 sn.
+const W = 1920, H = 1080, cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const DUR = 9.5;
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const eOut = x => 1 - Math.pow(1 - x, 3);
+const eIn = x => x * x * x;
+const eInOut = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const eBack = (x, s = 1.9) => { const c = s + 1; return 1 + c * Math.pow(x - 1, 3) + s * Math.pow(x - 1, 2); };
+const spring = (x, f = 3.2, d = 5.5) => x <= 0 ? 0 : 1 - Math.exp(-d * x) * Math.cos(f * Math.PI * x);
+function rng(seed) { let s = seed; return () => ((s = (s * 16807) % 2147483647) / 2147483647); }
+function off(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+const FT = "'Fredoka', sans-serif", FB = "'Fredoka', sans-serif";
+
+// ---------- palette ----------
+const C = {
+  sky0: '#0a1030', sky1: '#1c1552', star: '#fff4d8',
+  ocean: '#1f86c9', oceanD: '#145a9c', land: '#ffc94d', land2: '#5cd07a', cloud: '#eaf7ff',
+  atmo: '#63d6ff', moon: '#c7b3f5', moonD: '#8a6fcf',
+  bub: '#ffe6c2', bubD: '#f2a55b', navy: '#27265e', red: '#ff5a4e',
+  air0: '#0f2d55', air1: '#1b1a4d', mol: ['#4fd6ea', '#4fd6ea', '#4fd6ea', '#ff78ad', '#ffcb57'], crest: '#86e8ff'
+};
+
+// ---------- pre-rendered assets ----------
+let STARS, NEB, ATMO, MOLS = [], GLOW, VIG, NEB2;
+function buildAssets() {
+  const r = rng(7);
+  STARS = [];
+  for (let i = 0; i < 320; i++) STARS.push({ x: r() * W, y: r() * H, s: Math.pow(r(), 3) * 2.6 + 0.6, ph: r() * 6.28, sp: 0.8 + r() * 2.2, layer: r() < 0.7 ? 0 : 1 });
+  // nebula glows (space)
+  NEB = off(W, H); { const g = NEB.getContext('2d');
+    const blob = (x, y, rad, col, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, col.replace('A', a)); gr.addColorStop(1, col.replace('A', 0)); g.fillStyle = gr; g.fillRect(0, 0, W, H); };
+    blob(300, 260, 700, 'rgba(196,52,150,A)', 0.22); blob(1650, 180, 650, 'rgba(40,190,200,A)', 0.14); blob(960, 1100, 900, 'rgba(120,70,220,A)', 0.30); }
+  // scene B soft glows
+  NEB2 = off(W, H); { const g = NEB2.getContext('2d');
+    const blob = (x, y, rad, col, a) => { const gr = g.createRadialGradient(x, y, 0, x, y, rad); gr.addColorStop(0, col.replace('A', a)); gr.addColorStop(1, col.replace('A', 0)); g.fillStyle = gr; g.fillRect(0, 0, W, H); };
+    blob(220, 600, 700, 'rgba(255,140,90,A)', 0.16); blob(1500, 300, 800, 'rgba(60,200,230,A)', 0.12); blob(1300, 1000, 700, 'rgba(160,80,230,A)', 0.18); }
+  // atmosphere glow sprite around planet (radius 270)
+  ATMO = off(900, 900); { const g = ATMO.getContext('2d'); const gr = g.createRadialGradient(450, 450, 250, 450, 450, 440);
+    gr.addColorStop(0, 'rgba(99,214,255,0.55)'); gr.addColorStop(0.18, 'rgba(99,214,255,0.28)'); gr.addColorStop(0.5, 'rgba(90,140,255,0.08)'); gr.addColorStop(1, 'rgba(90,140,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 900, 900); }
+  // generic warm glow
+  GLOW = off(256, 256); { const g = GLOW.getContext('2d'); const gr = g.createRadialGradient(128, 128, 0, 128, 128, 128);
+    gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 256, 256); }
+  // molecule sprites (radius 15 drawn at 2x → 64px canvas)
+  for (const col of ['#4fd6ea', '#ff78ad', '#ffcb57']) {
+    const s = off(96, 96), g = s.getContext('2d'), cx = 48, cy = 48, R = 30;
+    const gl = g.createRadialGradient(cx, cy, R * 0.6, cx, cy, 48); gl.addColorStop(0, hexA(col, 0.35)); gl.addColorStop(1, hexA(col, 0)); g.fillStyle = gl; g.fillRect(0, 0, 96, 96);
+    g.fillStyle = col; g.beginPath(); g.arc(cx, cy, R, 0, 7); g.fill();
+    g.save(); g.beginPath(); g.arc(cx, cy, R, 0, 7); g.clip();
+    g.fillStyle = 'rgba(20,10,60,0.30)'; g.beginPath(); g.rect(0, 0, 96, 96); g.moveTo(cx - R * 0.22 + R * 1.02, cy - R * 0.22); g.arc(cx - R * 0.22, cy - R * 0.22, R * 1.02, 0, Math.PI * 2, true); g.fill('evenodd');
+    g.fillStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.rect(0, 0, 96, 96); g.moveTo(cx + R * 0.1 + R * 0.98, cy + R * 0.1); g.arc(cx + R * 0.1, cy + R * 0.1, R * 0.98, 0, Math.PI * 2, true); g.fill('evenodd');
+    g.restore();
+    g.fillStyle = 'rgba(255,255,255,0.75)'; g.beginPath(); g.ellipse(cx - R * 0.38, cy - R * 0.42, R * 0.2, R * 0.12, -0.7, 0, 7); g.fill();
+    MOLS.push(s);
+  }
+  VIG = off(W, H); { const g = VIG.getContext('2d'); const gr = g.createRadialGradient(W / 2, H / 2, 500, W / 2, H / 2, 1250);
+    gr.addColorStop(0, 'rgba(5,5,25,0)'); gr.addColorStop(1, 'rgba(5,5,25,0.55)'); g.fillStyle = gr; g.fillRect(0, 0, W, H); }
+}
+function hexA(h, a) { const n = parseInt(h.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; }
+
+// ---------- primitives ----------
+// Kurzgesagt-like shading: dark crescent away from light (light = top-left), thin bright rim toward light
+function shadeCircle(x, y, r, dark = 'rgba(15,8,60,0.42)', lite = 'rgba(255,255,255,0.28)', k = 0.2) {
+  ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.clip();
+  ctx.fillStyle = dark; ctx.beginPath(); ctx.rect(x - r - 2, y - r - 2, 2 * r + 4, 2 * r + 4); ctx.moveTo(x - r * k + r * 1.04, y - r * k); ctx.arc(x - r * k, y - r * k, r * 1.04, 0, Math.PI * 2, true); ctx.fill('evenodd');
+  ctx.fillStyle = lite; ctx.beginPath(); ctx.rect(x - r - 2, y - r - 2, 2 * r + 4, 2 * r + 4); ctx.moveTo(x + r * 0.06 + r * 0.985, y + r * 0.06); ctx.arc(x + r * 0.06, y + r * 0.06, r * 0.985, 0, Math.PI * 2, true); ctx.fill('evenodd');
+  ctx.restore();
+}
+function glow(x, y, r, col, a) {
+  ctx.save(); ctx.globalAlpha = a; ctx.globalCompositeOperation = 'lighter';
+  if (col) { ctx.filter = 'none'; }
+  ctx.drawImage(GLOW, x - r, y - r, 2 * r, 2 * r); ctx.restore();
+}
+
+// ---------- planet ----------
+const CONT = []; { const r = rng(4242);
+  const mk = (lo, la, rad, col) => { const pts = []; const n = 16; for (let i = 0; i < n; i++) { const a = i / n * 6.283, k = rad * (0.72 + r() * 0.5); pts.push([lo + Math.cos(a) * k * 1.25, la + Math.sin(a) * k]); } CONT.push({ pts, col }); };
+  for (const [lo, la, rad] of [[0.3, 0.3, 0.42], [2.2, -0.25, 0.48], [3.8, 0.35, 0.38], [5.1, -0.35, 0.4], [1.2, 0.72, 0.22], [4.6, 0.75, 0.2]]) {
+    mk(lo, la, rad, 'land2'); mk(lo + 0.08, la + 0.06, rad * 0.45, 'land'); } }
+const CLOUDS = [[0.7, -0.45, 0.42, 0.05], [1.9, 0.18, 0.34, 0.045], [3.0, -0.12, 0.5, 0.05], [4.3, 0.42, 0.38, 0.045], [5.6, -0.08, 0.3, 0.04], [2.6, 0.55, 0.26, 0.035]];
+function drawPlanet(cx, cy, R, rot, t) {
+  ctx.drawImage(ATMO, cx - R * 450 / 270, cy - R * 450 / 270, R * 900 / 270, R * 900 / 270);
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.clip();
+  const og = ctx.createRadialGradient(cx - R * .35, cy - R * .4, R * .1, cx, cy, R * 1.1); og.addColorStop(0, '#2aa3e0'); og.addColorStop(1, C.oceanD);
+  ctx.fillStyle = og; ctx.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+  for (const c of CONT) {
+    const P = c.pts.map(([lo, la]) => { let u = lo - rot; u = Math.atan2(Math.sin(u), Math.cos(u)); const vis = Math.cos(u) > 0; if (!vis) u = u > 0 ? Math.PI / 2 : -Math.PI / 2;
+      return [cx + R * Math.cos(la) * Math.sin(u), cy - R * Math.sin(la), vis]; });
+    if (!P.some(q => q[2])) continue;
+    ctx.fillStyle = C[c.col]; ctx.beginPath();
+    const n = P.length, mid = i => [(P[i][0] + P[(i + 1) % n][0]) / 2, (P[i][1] + P[(i + 1) % n][1]) / 2];
+    let m = mid(n - 1); ctx.moveTo(m[0], m[1]);
+    for (let i = 0; i < n; i++) { const q = mid(i); ctx.quadraticCurveTo(P[i][0], P[i][1], q[0], q[1]); }
+    ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(240,250,255,0.92)';
+  for (const [lo, la, len, th] of CLOUDS) { const u = lo - rot * 1.3; const cu = Math.cos(u); if (cu < 0.05) continue;
+    const px = cx + R * Math.cos(la) * Math.sin(u), py = cy - R * Math.sin(la), wv = R * len * cu * Math.cos(la), hv = R * th;
+    ctx.beginPath(); ctx.roundRect(px - wv / 2, py - hv / 2, wv, hv, hv / 2); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(px - wv * 0.15, py - hv * 1.25, wv * 0.5, hv * 0.9, hv * 0.45); ctx.fill(); }
+  ctx.fillStyle = 'rgba(240,250,255,0.95)'; ctx.beginPath(); ctx.ellipse(cx, cy - R * 0.99, R * 0.34, R * 0.1, 0, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, cy + R * 1.0, R * 0.28, R * 0.08, 0, 0, 7); ctx.fill();
+  ctx.restore();
+  shadeCircle(cx, cy, R, 'rgba(12,6,58,0.5)', 'rgba(200,245,255,0.35)', 0.26);
+  ctx.save(); ctx.strokeStyle = 'rgba(140,230,255,0.55)'; ctx.lineWidth = R * 0.018; ctx.beginPath(); ctx.arc(cx, cy, R * 1.005, Math.PI * 0.95, Math.PI * 1.75); ctx.stroke(); ctx.restore();
+}
+function drawMoon(x, y, r) {
+  ctx.fillStyle = C.moon; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  ctx.fillStyle = C.moonD; for (const [a, b, s] of [[-.3, -.2, .28], [.35, .25, .2], [-.1, .45, .14]]) { ctx.beginPath(); ctx.arc(x + a * r, y + b * r, s * r, 0, 7); ctx.fill(); }
+  shadeCircle(x, y, r, 'rgba(25,10,70,0.45)', 'rgba(255,255,255,0.35)', 0.28);
+}
+
+// ---------- speech bubble (irticalen mark, Kurzgesagt-rendered) ----------
+function drawBubble(x, y, s, rot = 0, squash = 0) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(s * (1 + squash), s * (1 - squash));
+  glow(0, 0, 150, null, 0.25);
+  const body = () => { ctx.beginPath(); ctx.roundRect(-60, -46, 120, 88, 26); ctx.moveTo(-34, 34); ctx.lineTo(-44, 70); ctx.lineTo(-6, 38); ctx.closePath(); };
+  ctx.fillStyle = C.bub; body(); ctx.fill();
+  ctx.save(); body(); ctx.clip();
+  ctx.fillStyle = 'rgba(230,110,40,0.38)'; ctx.beginPath(); ctx.rect(-80, -80, 160, 170); ctx.roundRect(-70, -58, 124, 92, 30); ctx.fill('evenodd');
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.beginPath(); ctx.roundRect(-50, -40, 70, 9, 5); ctx.fill();
+  ctx.restore();
+  [[-30, C.navy], [0, C.red], [30, C.navy]].forEach(([dx, col]) => { ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(dx, -14); ctx.lineTo(dx + 12, -2); ctx.lineTo(dx, 10); ctx.lineTo(dx - 12, -2); ctx.closePath(); ctx.fill(); });
+  ctx.restore();
+}
+
+// ---------- text ----------
+function popText(str, x, y, size, t0, t, opt = {}) {
+  const words = str.split(' '); ctx.font = `${opt.w || 600} ${size}px ${opt.f || FT}`;
+  const sp = ctx.measureText(' ').width, ws = words.map(w => ctx.measureText(w).width), tot = ws.reduce((a, b) => a + b, 0) + sp * (words.length - 1);
+  let cx = x - tot / 2; const out = opt.out != null ? opt.out : 99;
+  words.forEach((w, i) => {
+    const p = seg(t, t0 + i * 0.09, t0 + i * 0.09 + 0.5), q = seg(t, out + i * 0.04, out + i * 0.04 + 0.3);
+    if (p <= 0 || q >= 1) { cx += ws[i] + sp; return; }
+    const sc = eBack(p) * (1 - eIn(q) * 0.4);
+    ctx.save(); ctx.translate(cx + ws[i] / 2, y + (1 - eOut(p)) * size * 0.35); ctx.scale(sc, sc);
+    ctx.globalAlpha = clamp(p * 2.5) * (1 - q);
+    ctx.fillStyle = opt.col || '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = opt.glow || 'rgba(120,200,255,0.5)'; ctx.shadowBlur = 28;
+    ctx.fillText(w, 0, 0); ctx.restore(); cx += ws[i] + sp;
+  });
+}
+
+// ---------- scenes ----------
+function stars(t, par, alpha) {
+  for (const s of STARS) {
+    const tw = 0.55 + 0.45 * Math.sin(t * s.sp + s.ph);
+    const x = (s.x - par * (s.layer ? 60 : 25) + W) % W, y = s.y + par * (s.layer ? 18 : 8);
+    ctx.globalAlpha = alpha * tw * (s.layer ? 1 : 0.6); ctx.fillStyle = C.star;
+    if (s.s > 2.3) { // sparkle
+      const k = s.s * 2.4 * tw; ctx.beginPath(); ctx.moveTo(x, y - k); ctx.quadraticCurveTo(x, y, x + k, y); ctx.quadraticCurveTo(x, y, x, y + k); ctx.quadraticCurveTo(x, y, x - k, y); ctx.quadraticCurveTo(x, y, x, y - k); ctx.fill();
+    } else { ctx.beginPath(); ctx.arc(x, y, s.s, 0, 7); ctx.fill(); }
+  }
+  ctx.globalAlpha = 1;
+}
+const PC = { x: 960, y: 650, r: 270 };
+function orbitPos(th, rx, ry, tilt, cx, cy) { const x = rx * Math.cos(th), y = ry * Math.sin(th); return [cx + x * Math.cos(tilt) - y * Math.sin(tilt), cy + x * Math.sin(tilt) + y * Math.cos(tilt), Math.sin(th)]; }
+
+function sceneSpace(t) {
+  const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, C.sky0); bg.addColorStop(1, C.sky1);
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = seg(t, 0, 1.2); ctx.drawImage(NEB, 0, 0); ctx.globalAlpha = 1;
+  stars(t, t * 0.15, seg(t, 0.05, 0.9));
+  // planet rise with overshoot
+  const pr = seg(t, 0.25, 1.75), py = lerp(1560, PC.y, eBack(pr, 1.25)), rot = t * 0.22 + 1.2;
+  // moon orbit (behind / in front)
+  const mp = orbitPos(-0.6 + t * 0.42, 640, 170, -0.16, PC.x, py - 40), mr = 44 * (0.85 + 0.15 * mp[2]);
+  const ma = seg(t, 0.9, 1.5);
+  const bth = 3.55 - 0.62 * (t - 1.3), bp = orbitPos(bth, 450, 120, -0.1, PC.x, py - 30);
+  const bs = eBack(seg(t, 1.3, 1.85)) * (0.82 + 0.18 * bp[2]);
+  const drawB = () => { if (bs > 0) drawBubble(bp[0], bp[1] + Math.sin(t * 3) * 5, 0.78 * bs, Math.sin(t * 1.7) * 0.08, emitSquash(t)); };
+  if (ma > 0 && mp[2] < 0) { ctx.globalAlpha = ma; drawMoon(mp[0], mp[1], mr); ctx.globalAlpha = 1; }
+  if (bp[2] < 0) drawB();
+  drawPlanet(PC.x, py, PC.r, rot, t);
+  if (ma > 0 && mp[2] >= 0) { ctx.globalAlpha = ma; drawMoon(mp[0], mp[1], mr); ctx.globalAlpha = 1; }
+  // sound rings that fail to travel in vacuum: break apart into dots and die
+  for (const te of [2.3, 2.9, 3.5]) {
+    const k = seg(t, te, te + 1.1); if (k <= 0 || k >= 1) continue;
+    const eb = orbitPos(3.55 - 0.62 * (te - 1.3), 450, 120, -0.1, PC.x, py - 30);
+    const rad = 60 + 170 * eOut(k), n = 28, gap = 0.15 + 0.8 * eIn(k);
+    ctx.save(); ctx.strokeStyle = C.crest; ctx.lineCap = 'round'; ctx.lineWidth = 7 * (1 - k * 0.7); ctx.globalAlpha = (1 - k) * 0.9;
+    ctx.shadowColor = 'rgba(134,232,255,0.8)'; ctx.shadowBlur = 16;
+    for (let i = 0; i < n; i++) { const a0 = i / n * 6.283, a1 = a0 + 6.283 / n * (1 - gap); ctx.beginPath(); ctx.arc(eb[0], eb[1], rad, a0, a1); ctx.stroke(); }
+    ctx.restore();
+  }
+  if (bp[2] >= 0) drawB();
+  // title
+  popText('Uzayda ses yayılmaz.', 960, 150, 84, 2.05, t, { out: 4.2 });
+  ctx.globalAlpha = seg(t, 2.6, 3.0) * (1 - seg(t, 4.1, 4.35));
+  ctx.font = `600 32px ${FB}`; ctx.fillStyle = '#c3cfff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.letterSpacing = '6px'; ctx.fillText('TİTREŞECEK HAVA YOK', 960, 232); ctx.letterSpacing = '0px'; ctx.globalAlpha = 1;
+}
+function emitSquash(t) { let s = 0; for (const te of [2.3, 2.9, 3.5]) { const k = t - te + 0.12; if (k > 0 && k < 0.45) s += Math.sin(k / 0.45 * Math.PI * 2) * 0.12 * (1 - k / 0.45); } return s; }
+
+// scene B: air molecules carrying a pressure wave
+let MOLGRID;
+function buildGrid() {
+  const r = rng(99); MOLGRID = [];
+  for (let y = 360; y <= 900; y += 54) for (let x = 400; x <= 1880; x += 54) {
+    const c = r(); MOLGRID.push({ x: x + (r() - .5) * 22 + ((y / 54) % 2) * 27, y: y + (r() - .5) * 18, k: c < 0.72 ? 0 : c < 0.88 ? 1 : 2, ph: r() * 6.28, sc: 0.8 + r() * 0.35 });
+  }
+}
+const SRC = { x: 230, y: 630 }, T0B = 5.6, V = 560, LAMBDA = 230, AMP = 20;
+function sceneAir(t) {
+  const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, C.air1); bg.addColorStop(1, C.air0);
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H); ctx.drawImage(NEB2, 0, 0);
+  const tau = t - T0B, front = Math.max(0, tau * V), kk = 2 * Math.PI / LAMBDA, w = kk * V;
+  // wave crests (glowing arcs)
+  if (tau > 0) {
+    ctx.save(); ctx.beginPath(); ctx.rect(SRC.x + 70, 300, W, 660); ctx.clip();
+    ctx.lineCap = 'round'; ctx.shadowColor = 'rgba(134,232,255,0.9)'; ctx.shadowBlur = 24;
+    for (let n = 0; n < 12; n++) {
+      const d = (w * tau - Math.PI / 2 - 2 * Math.PI * n) / kk; if (d < 60 || d > front) continue;
+      const fade = clamp((front - d) / 120) * clamp(1 - d / 2100) * (1 - seg(t, 8.5, 9.1));
+      ctx.strokeStyle = hexA(C.crest, 0.55 * fade); ctx.lineWidth = 9;
+      ctx.beginPath(); ctx.arc(SRC.x, SRC.y, d, -0.62, 0.62); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  // molecules
+  const outK = seg(t, 8.55, 9.1);
+  for (const m of MOLGRID) {
+    const dx0 = m.x - SRC.x, dy0 = m.y - SRC.y, d = Math.hypot(dx0, dy0);
+    const inP = eBack(seg(t, 5.05 + (m.x - 400) / 1480 * 0.55 + m.ph * 0.02, 5.45 + (m.x - 400) / 1480 * 0.55 + m.ph * 0.02));
+    const outP = seg(outK, (1 - d / 1800) * 0.6, (1 - d / 1800) * 0.6 + 0.4);
+    const sc = m.sc * inP * (1 - eIn(outP)); if (sc <= 0.01) continue;
+    let disp = 0, comp = 0;
+    if (tau > 0 && d < front) { const env = clamp((front - d) / 90); const ph = w * tau - kk * d; disp = AMP * Math.sin(ph) * env; comp = Math.cos(ph) * env; }
+    const jx = Math.sin(t * 2.1 + m.ph) * 3, jy = Math.cos(t * 1.7 + m.ph * 1.3) * 3;
+    const x = m.x + dx0 / d * disp + jx, y = m.y + dy0 / d * disp + jy, rr = 15 * sc * (1 + Math.max(0, comp) * 0.12);
+    if (comp > 0.2) glow(x, y, 46 * sc, null, (comp - 0.2) * 0.35);
+    ctx.drawImage(MOLS[m.k], x - rr * 1.6, y - rr * 1.6, rr * 3.2, rr * 3.2);
+  }
+  // source bubble pulsing with each wave
+  const bIn = eBack(seg(t, 5.15, 5.6)), bOut = seg(t, 9.0, 9.28);
+  const pulse = tau > 0 ? Math.max(0, Math.sin(w * tau)) * 0.07 : 0;
+  if (bIn > 0 && bOut < 1) drawBubble(SRC.x, SRC.y - 10, 1.05 * bIn * (1 - eIn(bOut)), -0.06, pulse);
+  // headline + counter
+  popText('Havada ise saniyede', 960, 122, 50, 5.35, t, { out: 8.55, col: '#bfe3ff', w: 500 });
+  const cp = seg(t, 5.7, 7.3), val = Math.round(343 * eOut(cp));
+  const ci = eBack(seg(t, 5.55, 6.05)), co = seg(t, 8.6, 8.95);
+  if (ci > 0 && co < 1) {
+    ctx.save(); ctx.translate(960, 222); const s = ci * (1 - eIn(co) * 0.5) * (1 + (cp >= 1 ? Math.exp(-(t - 7.3) * 7) * 0.12 : 0)); ctx.scale(s, s); ctx.globalAlpha = 1 - co;
+    ctx.font = `700 112px ${FT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.shadowColor = 'rgba(255,200,90,0.6)'; ctx.shadowBlur = 36; ctx.fillStyle = '#ffd36b';
+    const num = String(val), unit = ' metre'; ctx.font = `700 112px ${FT}`; const nw = ctx.measureText('343').width; ctx.font = `600 80px ${FT}`; const uw = ctx.measureText(unit).width;
+    const x0 = -(nw + uw) / 2; ctx.font = `700 112px ${FT}`; ctx.textAlign = 'right'; ctx.fillText(num, x0 + nw, 0);
+    ctx.font = `600 80px ${FT}`; ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(120,200,255,0.5)'; ctx.textAlign = 'left'; ctx.fillText(unit, x0 + nw, 8);
+    ctx.restore();
+  }
+}
+
+function frame(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.filter = 'none';
+  const zA = seg(t, 4.3, 5.05), cross = seg(t, 4.92, 5.08);
+  if (cross < 1) {
+    ctx.save();
+    const z = 1 + 9 * eIn(zA); ctx.translate(960, 470); ctx.scale(z, z); ctx.translate(-960, -470);
+    sceneSpace(t); ctx.restore();
+  }
+  if (cross > 0) {
+    ctx.save(); ctx.globalAlpha = eInOut(cross);
+    const z = 1 + 0.18 * (1 - eOut(seg(t, 4.85, 6.0))); ctx.translate(960, 540); ctx.scale(z, z); ctx.translate(-960, -540);
+    sceneAir(t); ctx.restore();
+  }
+  // flash of atmosphere at hand-off
+  const fl = Math.sin(Math.PI * seg(t, 4.72, 5.4)); if (fl > 0) { ctx.globalAlpha = Math.pow(fl, 1.5) * 0.85; ctx.fillStyle = '#8fe4ff'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+  ctx.drawImage(VIG, 0, 0);
+  // intro / outro fades to deep navy
+  const fade = Math.max(1 - seg(t, 0, 0.45), seg(t, 9.15, 9.5));
+  if (fade > 0) { ctx.globalAlpha = eInOut(fade); ctx.fillStyle = '#0a1030'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+window.draw = function (job) { frame(job.t); return cv.toDataURL('image/jpeg', job.q || 0.92).split(',')[1]; };
+window.ready = document.fonts.ready.then(() => Promise.all([
+  document.fonts.load(`600 80px 'Fredoka'`, 'Uzayda ses yayılmaz ığüşöçİĞŞ'), document.fonts.load(`700 80px 'Fredoka'`, '343 metre'),
+  document.fonts.load(`500 80px 'Fredoka'`, 'Havada ise saniyede'), document.fonts.load(`600 30px 'Fredoka'`, 'TİTREŞECEK HAVA YOK')
+])).then(() => { buildAssets(); buildGrid(); });
+</script></body></html>

@@ -1,0 +1,159 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="fonts.css"></head>
+<body style="margin:0;background:#ebe5d7"><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+//  kinetik-tipografi — yalnız kelimeler. window.draw({t}) → JPEG base64
+//  "Önce susarsın. Sonra bir kelime gelir. Sonra bir tane daha.
+//   Ve bir bakmışsın — konuşuyorsun."
+//  Sessizlik = küçük/ince/boşluk; konuşma = büyük/kalın/yoğun. Son: nokta → sessizlik.
+// ─────────────────────────────────────────────────────────────────────────────
+const W = 1920, H = 1080, DUR = 9.0;
+const cv = document.getElementById('c'); const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, p) => a + (b - a) * p;
+const eOut = x => 1 - Math.pow(1 - x, 3), eOut5 = x => 1 - Math.pow(1 - x, 5), eIn = x => x * x * x;
+const eIO = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const eBack = (x, s = 1.7) => x <= 0 ? 0 : x >= 1 ? 1 : 1 + (s + 1) * Math.pow(x - 1, 3) + s * Math.pow(x - 1, 2);
+const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+const BG = '#ebe5d7', INK = '#15130f', RED = '#d8402f';
+const GRO = "'Bricolage Grotesque', sans-serif", SER = "'Instrument Serif', serif";
+const inkA = a => `rgba(21,19,15,${a})`;
+
+const T = { once: 0.25, sus: 0.8, cam1: 1.72, sonra: 1.95, kelime: 2.22, gelir: 2.6, cam2: 3.0, g3: [3.22, 3.42, 3.6, 3.8],
+  wall0: 4.15, wall1: 5.45, wallOut: 5.65, ve: 5.95, veUp: 6.5, kon: 6.62, wgt0: 6.8, wgt1: 7.65, dot: 7.4, out: 8.05, end: 8.95 };
+
+// ── kelime çizici ────────────────────────────────────────────────────────────
+function font(o) { ctx.font = `${o.it ? 'italic ' : ''}${Math.round(o.w || 400)} ${o.size}px ${o.fam}`; ctx.letterSpacing = (o.ls || 0) + 'px'; }
+function measure(str, o) { font(o); return ctx.measureText(str).width; }
+function word(str, x, y, o) {   // x: hizalama noktası, y: taban çizgisi
+  const a = o.a === undefined ? 1 : o.a; if (a <= 0.003) return;
+  font(o); const w = ctx.measureText(str).width; const al = o.align || 'center';
+  const x0 = al === 'center' ? x - w / 2 : al === 'right' ? x - w : x;
+  ctx.save(); ctx.globalAlpha *= a; ctx.fillStyle = o.col || INK; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  const s = o.s === undefined ? 1 : o.s; const ox = x0 + w / 2, oy = y - o.size * 0.35;
+  ctx.translate(ox, oy); ctx.scale(s * (o.sx || 1), s * (o.sy || 1)); ctx.translate(-ox, -oy);
+  ctx.fillText(str, x0, y); ctx.restore(); return w;
+}
+// giriş: aşağıdan yükselip oturma (overshoot ile)
+const rise = (t, t0, d = 0.45, dist = 40) => { const p = seg(t, t0, t0 + d); return { a: clamp(p * 2.2), dy: (1 - eBack(p, 1.2)) * dist }; };
+
+// ── kamera: satır grupları yukarı akar ───────────────────────────────────────
+const G1 = 540, G2 = 1240, G3 = 1940;
+function camY(t) { if (t < T.cam1) return G1; if (t < T.cam2) return lerp(G1, G2, eIO(seg(t, T.cam1, T.cam1 + 0.5))); return lerp(G2, G3, eIO(seg(t, T.cam2, T.cam2 + 0.5))); }
+const groupA = (gy, cy) => 1 - 0.85 * clamp(Math.abs(gy - cy) / 600);
+
+function group1(t, cy) {
+  const off = 540 - cy, ga = groupA(G1, cy); if (off < -1100) return;
+  const r = rise(t, T.once, 0.55, 34);
+  word('Önce', 960, G1 - 20 + off + r.dy, { fam: SER, it: true, size: 92, a: r.a * ga });
+  // susarsın: ince, küçük, harf aralığı yavaşça açılır (sessizlik uzar)
+  const p = seg(t, T.sus, T.sus + 0.6);
+  word('susarsın.', 960, G1 + 78 + off, { fam: GRO, w: 200, size: 40, ls: lerp(3, 26, eOut(seg(t, T.sus, T.cam1 + 0.3))), a: eOut(p) * ga * 0.9 });
+}
+function group2(t, cy) {
+  const off = 540 - cy, ga = groupA(G2, cy); if (off > 1100 || off < -1100) return;
+  const r1 = rise(t, T.sonra, 0.45, 30);
+  word('Sonra bir', 960, G2 - 150 + off + r1.dy, { fam: SER, it: true, size: 72, a: r1.a * ga });
+  // kelime: ölçekle patlar, inerken kalınlaşır
+  const p = seg(t, T.kelime - 0.08, T.kelime + 0.42), s = lerp(0.55, 1, eBack(p, 2.2)), w = lerp(300, 760, eOut(seg(t, T.kelime, T.kelime + 0.35)));
+  const kw = word('kelime', 960, G2 + 70 + off, { fam: GRO, w, size: 230, ls: -6, s, a: clamp(p * 4) * ga });
+  const kw8 = measure('kelime', { fam: GRO, w: 760, size: 230, ls: -6 });
+  const q = seg(t, T.gelir, T.gelir + 0.4);
+  word('gelir.', 960 + kw8 / 2 - 6 + (1 - eOut5(q)) * 60, G2 + 160 + off, { fam: GRO, w: 300, size: 64, align: 'right', a: clamp(q * 2) * ga });
+}
+// G3: "Sonra bir tane daha." — her kelime bir öncekinden büyük ve kalın
+const G3W = [['Sonra', { fam: SER, it: true, size: 76 }], ['bir', { fam: GRO, w: 300, size: 96, ls: -2 }], ['tane', { fam: GRO, w: 560, size: 136, ls: -4 }], ['daha.', { fam: GRO, w: 800, size: 176, ls: -6 }]];
+function g3Layout() { const gap = 34; const ws = G3W.map(([s, o]) => measure(s, o)); const tot = ws.reduce((a, b) => a + b, 0) + gap * 3;
+  let x = 960 - tot / 2; return ws.map(w => { const cx = x + w / 2; x += w + gap; return cx; }); }
+let G3X;
+function group3(t, cy, fade) {
+  const off = 540 - cy; if (off > 1100) return;
+  G3W.forEach(([s, o], i) => { const t0 = T.g3[i]; const p = seg(t, t0 - 0.06, t0 + 0.3); if (p <= 0) return;
+    const sc = lerp(1.35, 1, eOut5(p));   // "çakılma": büyükten oturur
+    word(s, G3X[i], G3 + 50 + off + (1 - eOut5(p)) * -18, { ...o, s: sc * (1 - 0.06 * fade), a: clamp(p * 3) * (1 - fade) }); });
+}
+
+// ── duvar: "bir kelime daha" ritmi hızlanarak ekranı doldurur ────────────────
+const WALL = []; const TOK = [['bir', 300], ['kelime', 520], ['daha', 800]];
+function buildWall() {
+  const rows = [-3, -2, -1, 1, 2, 3]; const size = 78, gap = 40;
+  rows.forEach(r => { let x = -260 - hash(r + 9) * 200; let k = Math.floor(hash(r * 3.3) * 3);
+    while (x < W + 300) { const [s, w] = TOK[k % 3]; const ww = measure(s, { fam: GRO, w, size, ls: -2 });
+      WALL.push({ r, s, w, size, x: x + ww / 2, y: 540 + r * 150 + 48, dist: Math.abs(r) * 900 + Math.abs(x + ww / 2 - 960) }); x += ww + gap; k++; } });
+  WALL.sort((a, b) => a.dist - b.dist); const N = WALL.length;
+  WALL.forEach((o, k) => o.t = T.wall0 + (T.wall1 - T.wall0) * Math.pow(k / (N - 1), 0.62));
+}
+function wall(t) {
+  if (t < T.wall0 - 0.1 || t > T.ve + 0.5) return;
+  const out = eIn(seg(t, T.wallOut, T.wallOut + 0.55));
+  for (const o of WALL) { const p = seg(t, o.t, o.t + 0.28); if (p <= 0) continue;
+    const dir = o.r % 2 === 0 ? 1 : -1; const drift = dir * (t - T.wall0) * 70 + dir * out * 1500 * (1 + Math.abs(o.r) * 0.2);
+    const depth = [0, 0.78, 0.5, 0.27][Math.abs(o.r)];
+    word(o.s, o.x + drift, o.y, { fam: GRO, w: o.w, size: o.size, ls: -2, s: lerp(0.7, 1, eBack(p, 1.8)), a: clamp(p * 3) * depth * (1 - out) }); }
+}
+
+// ── final: "Ve bir bakmışsın —" + "konuşuyorsun." ────────────────────────────
+const KON = [...'konuşuyorsun']; let KSIZE = 200;
+function finale(t) {
+  // Ve bir bakmışsın —
+  if (t > T.ve - 0.05) { const p = seg(t, T.ve, T.ve + 0.45), u = eIO(seg(t, T.veUp, T.veUp + 0.45)), o = seg(t, T.out, T.out + 0.35);
+    word('Ve bir bakmışsın —', 960, lerp(560, 400, u) + (1 - eOut(p)) * 24, { fam: SER, it: true, size: lerp(96, 66, u), a: eOut(p) * lerp(1, 0.75, u) * (1 - o) }); }
+  if (t < T.kon) return;
+  const wgt = lerp(220, 800, eIO(seg(t, T.wgt0, T.wgt1)));
+  const breath = 1 + 0.03 * eOut(seg(t, T.wgt1, T.out));
+  const o = { fam: GRO, w: wgt, size: KSIZE, ls: -KSIZE * 0.035 }; font(o);
+  const adv = KON.map(c => ctx.measureText(c).width); const dotW = ctx.measureText('.').width;
+  const tot = adv.reduce((a, b) => a + b, 0) + dotW; let x = 960 - tot * breath / 2; const y = 700;
+  const dotX = 960 + tot * breath / 2 - dotW * breath / 2;
+  ctx.save(); ctx.fillStyle = INK; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  KON.forEach((c, i) => { const t0 = T.kon + i * 0.042, p = seg(t, t0, t0 + 0.5); const w = adv[i] * breath;
+    // çıkış: harfler soldan sağa taban çizgisine doğru ezilip susar
+    const q = eIn(seg(t, T.out + i * 0.028, T.out + 0.26 + i * 0.028));
+    const cx = x + w / 2;
+    if (p > 0 && q < 1) { ctx.save(); ctx.globalAlpha = clamp(p * 3) * (1 - q * q);
+      const dy = (1 - eBack(p, 1.6)) * 120; ctx.translate(cx, y + dy); const sy = lerp(1.25, 1, eOut(p)) * breath * (1 - q); ctx.scale(breath * (1 + 0.08 * q), sy);
+      ctx.fillText(c, -adv[i] / 2, 0); ctx.restore(); }
+    x += w; });
+  // kırmızı nokta: patlar, sonunda merkeze gelip küçülerek söner (sessizliğe dönüş)
+  const dp = seg(t, T.dot, T.dot + 0.4);
+  if (dp > 0) { const m = eIO(seg(t, T.out + 0.5, T.out + 0.8)); const f = seg(t, T.out + 0.72, T.end);
+    const r0 = KSIZE * (wgt / 800 * 0.075 + 0.045);
+    const px = lerp(dotX + 10, 960, m), py = lerp(y - r0, 540, m); const r = r0 * eBack(dp, 3) * breath * lerp(1, 0.28, m) * (1 - eOut(f) * 0.6);
+    ctx.globalAlpha = 1 - eOut(f); ctx.fillStyle = RED; ctx.beginPath(); ctx.arc(px, py, Math.max(0, r), 0, 7); ctx.fill(); }
+  ctx.restore();
+}
+
+let PAPER;
+function prep() {
+  G3X = g3Layout(); buildWall();
+  // konuşuyorsun. kalın hâlinde ~1640 px genişliğe otursun
+  const o = { fam: GRO, w: 800, size: 200, ls: -7 }; const w = measure('konuşuyorsun.', o); KSIZE = Math.round(200 * 1640 / w);
+  PAPER = mk(W, H); const g = PAPER.getContext('2d'); g.fillStyle = BG; g.fillRect(0, 0, W, H);
+  const im = g.getImageData(0, 0, W, H); for (let i = 0; i < im.data.length; i += 4) { const n = (Math.random() - 0.5) * 9; im.data[i] += n; im.data[i + 1] += n; im.data[i + 2] += n * 0.9; }
+  g.putImageData(im, 0, 0);
+  const v = g.createRadialGradient(960, 540, 300, 960, 540, 1150); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(60,45,25,0.16)'); g.fillStyle = v; g.fillRect(0, 0, W, H);
+  // ses olayları
+  window.SFX = [{ t: T.once, k: 'tick', v: 0.6 }, { t: T.sus, k: 'soft' }, { t: T.sonra, k: 'tick', v: 0.7 }, { t: T.kelime, k: 'knock' }, { t: T.gelir, k: 'tick', v: 0.6 }];
+  T.g3.forEach((t, i) => SFX.push({ t, k: 'wood', v: i }));
+  WALL.forEach((o, k) => { if (k % 2 === 0) SFX.push({ t: o.t, k: 'patter', v: k }); });
+  KON.forEach((c, i) => SFX.push({ t: T.kon + i * 0.042 + 0.12, k: 'patter', v: 100 + i }));
+  SFX.push({ t: T.dot + 0.1, k: 'knock' }, { t: T.out + 0.8, k: 'tink' });
+}
+window.SFX = [];
+function render(t) {
+  ctx.globalAlpha = 1; ctx.drawImage(PAPER, 0, 0);
+  const cy = camY(t);
+  group1(t, cy); group2(t, cy);
+  const fade3 = eIn(seg(t, T.wallOut, T.wallOut + 0.45));
+  group3(t, cy, fade3);
+  wall(t);
+  finale(t);
+}
+window.draw = function (job) { render(job.t); return cv.toDataURL('image/jpeg', job.q || 0.92).split(',')[1]; };
+window.ready = document.fonts.ready.then(() => Promise.all([
+  ...[200, 300, 500, 800].map(w => document.fonts.load(`${w} 100px 'Bricolage Grotesque'`, 'konuşuyorsun kelime daha ÖĞİŞ')),
+  document.fonts.load(`italic 400 80px 'Instrument Serif'`, 'Önce Sonra bir bakmışsın —'), document.fonts.load(`400 80px 'Instrument Serif'`, 'Önce')])).then(prep);
+</script></body></html>

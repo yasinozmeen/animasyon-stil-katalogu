@@ -1,0 +1,184 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="fonts.css"></head>
+<body style="margin:0;background:#f6f4ef"><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+//  veri — editoryal veri gazeteciliği anlatımı. window.draw({t}) → JPEG base64
+//  Sahne 1: çizgi grafik kendini çizer (dolgu sözcüğü / hafta), fark notu, −%78.
+//  Geçiş: sayfa aşağı kayar (scrollytelling). Sahne 2: yatay çubuklar büyür.
+//  Kapanış: içerik söner, irticalen logosu.
+// ─────────────────────────────────────────────────────────────────────────────
+const W = 1920, H = 1080, DUR = 9.0;
+const cv = document.getElementById('c'); const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, p) => a + (b - a) * p;
+const eOut = x => 1 - Math.pow(1 - x, 3), eOut4 = x => 1 - Math.pow(1 - x, 4), eIO = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const eIO2 = x => x < .5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+const PAPER = '#f6f4ef', INK = '#15130f', MUTED = '#6d685e', GRID = '#dcd7cc', ACC = '#d8402f', GREY = '#a19b8f', DARK = '#45413a';
+const SERIF = "'Source Serif 4', Georgia, serif", SANS = "'Libre Franklin', sans-serif";
+function F(size, w, fam, ls = 0) { ctx.font = `${w} ${size}px ${fam}`; ctx.letterSpacing = ls + 'px'; }
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+
+// ── veri (temsili) ───────────────────────────────────────────────────────────
+const A = [14.2, 12.9, 11.1, 9.8, 8.9, 7.6, 6.8, 5.9, 5.1, 4.4, 3.6, 3.1];
+const B = [13.8, 14.1, 13.5, 13.9, 13.2, 13.6, 13.0, 13.4, 12.9, 13.2, 12.8, 13.1];
+const PX0 = 200, PX1 = 1330, PY0 = 890, PY1 = 400, YMAX = 15;
+const X = i => lerp(PX0, PX1, i / 11), Y = v => lerp(PY0, PY1, v / YMAX);
+const BARS = [{ lab: 'Her gün 1 konu', v: 4, col: ACC }, { lab: 'Haftada 3 konu', v: 7, col: DARK }, { lab: 'Haftada 1 konu', v: 11, col: GREY }];
+const T = { head: 0.1, grid: 0.75, lineB: 1.45, lineA: 2.05, lineA1: 3.85, area: 3.8, note: 4.2, scroll0: 5.2, scroll1: 6.05, bars: 6.0, fade: 8.15, logo: 8.5 };
+
+window.SFX = [];
+SFX.push({ t: T.lineB + 0.8, k: 'tick' });
+for (let i = 0; i < 12; i++) SFX.push({ t: T.lineA + (T.lineA1 - T.lineA) * invIO(i / 11), k: 'dot', v: i });
+SFX.push({ t: T.note + 0.1, k: 'tock' });
+BARS.forEach((b, i) => SFX.push({ t: T.bars + 0.25 + i * 0.16 + 0.7, k: 'tick' }));
+SFX.push({ t: T.logo + 0.15, k: 'soft' });
+function invIO(f) { let lo = 0, hi = 1; for (let k = 0; k < 30; k++) { const m = (lo + hi) / 2; eIO(m) < f ? lo = m : hi = m; } return lo; }
+
+// ── metin yardımcıları ───────────────────────────────────────────────────────
+// maskeden yükselen satır (editoryal başlık girişi)
+function riseText(str, x, y, p, lineH) {
+  if (p <= 0) return; const e = eOut4(p);
+  ctx.save(); ctx.beginPath(); ctx.rect(x - 10, y - lineH * 0.95, 1700, lineH * 1.25); ctx.clip();
+  ctx.globalAlpha *= clamp(p * 2); ctx.fillText(str, x, y + (1 - e) * lineH * 0.9); ctx.restore();
+}
+// eşit genişlikli rakamlarla sayı (sayarken titremesin)
+function numText(str, x, y, align = 'left') {
+  const dw = ctx.measureText('0').width; let w = 0; const parts = [...str].map(ch => { const cw = /[0-9]/.test(ch) ? dw : ctx.measureText(ch).width; w += cw; return [ch, cw]; });
+  let cx = align === 'right' ? x - w : align === 'center' ? x - w / 2 : x; const al = ctx.textAlign; ctx.textAlign = 'center';
+  for (const [ch, cw] of parts) { ctx.fillText(ch, cx + cw / 2, y); cx += cw; } ctx.textAlign = al; return w;
+}
+const fmt1 = v => v.toFixed(1).replace('.', ',');
+
+// ── sahne 1 ──────────────────────────────────────────────────────────────────
+function scene1(t) {
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  F(17, 700, SANS, 2.5); ctx.fillStyle = ACC; riseText('DOĞAÇLAMA KONUŞMA', PX0, 150, seg(t, T.head, T.head + 0.55), 24);
+  F(66, 600, SERIF, -0.8); ctx.fillStyle = INK;
+  const hp = seg(t, T.head + 0.12, T.head + 0.8);
+  const pre = 'Konuştukça ', key = '“şey”', post = ' azalıyor';
+  riseText(pre, PX0, 232, hp, 76); const w1 = ctx.measureText(pre).width;
+  ctx.fillStyle = ACC; riseText(key, PX0 + w1, 232, hp, 76); const w2 = ctx.measureText(key).width;
+  ctx.fillStyle = INK; riseText(post, PX0 + w1 + w2, 232, hp, 76);
+  // vurgu alt çizgisi
+  const up = eOut(seg(t, 0.9, 1.35)); if (up > 0) { ctx.fillStyle = ACC; ctx.fillRect(PX0 + w1 + 4, 246, (w2 - 8) * up, 4); }
+  F(25, 400, SANS, 0); ctx.fillStyle = MUTED;
+  riseText('Bir dakikalık doğaçlama konuşmada kullanılan dolgu sözcüğü sayısı, haftalara göre', PX0, 292, seg(t, T.head + 0.35, T.head + 0.95), 34);
+
+  // ızgara (alttan yukarı, soldan sağa uzar)
+  for (let k = 0; k <= 3; k++) { const v = k * 5, y = Y(v), p = eOut(seg(t, T.grid + k * 0.08, T.grid + 0.55 + k * 0.08)); if (p <= 0) continue;
+    ctx.fillStyle = k === 0 ? INK : GRID; ctx.fillRect(PX0, y - (k === 0 ? 1 : 0.5), (PX1 - PX0 + 40) * p, k === 0 ? 2 : 1);
+    F(19, 400, SANS, 0); ctx.fillStyle = rgba(MUTED, clamp(p * 1.5)); ctx.textAlign = 'left';
+    if (k > 0) ctx.fillText(k === 3 ? '15 sözcük' : String(v), PX0, y - 10); }
+  F(19, 400, SANS, 0); ctx.textAlign = 'center';
+  [[0, '1. hafta'], [3, '4'], [7, '8'], [11, '12. hafta']].forEach(([i, s], k) => { const p = seg(t, T.grid + 0.3 + k * 0.06, T.grid + 0.7 + k * 0.06); if (p <= 0) return;
+    ctx.fillStyle = rgba(MUTED, p); ctx.fillRect(X(i) - 0.5, PY0, 1, 8 * p); ctx.fillText(s, X(i), PY0 + 36); });
+
+  // fark alanı
+  const ap = seg(t, T.area, T.area + 0.6);
+  if (ap > 0) { ctx.beginPath(); A.forEach((v, i) => i ? ctx.lineTo(X(i), Y(v)) : ctx.moveTo(X(i), Y(v)));
+    for (let i = 11; i >= 0; i--) ctx.lineTo(X(i), Y(B[i])); ctx.closePath(); ctx.fillStyle = rgba(ACC, 0.075 * eOut(ap)); ctx.fill(); }
+
+  // çizgiler
+  drawLine(B, GREY, 3, eIO(seg(t, T.lineB, T.lineB + 0.8)), false, t);
+  drawLine(A, ACC, 5, eIO(seg(t, T.lineA, T.lineA1)), true, t);
+  // doğrudan etiketler (lejant yok)
+  ctx.textAlign = 'left';
+  const lb = seg(t, T.lineB + 0.7, T.lineB + 1.1); if (lb > 0) { F(22, 500, SANS, 0); ctx.fillStyle = rgba(DARK, lb); ctx.fillText('Pratik yapmayanlar', X(11) + 22 + (1 - eOut(lb)) * 10, Y(B[11]) + 8); }
+  const la = seg(t, T.lineA1 - 0.05, T.lineA1 + 0.35); if (la > 0) { F(22, 700, SANS, 0); ctx.fillStyle = rgba(ACC, la); ctx.fillText('Her gün pratik yapanlar', X(11) + 22 + (1 - eOut(la)) * 10, Y(A[11]) + 8); }
+
+  // not: parantez + büyük sayı
+  const np = seg(t, T.note, T.note + 0.5);
+  if (np > 0) { const x = X(11) + 150, y0 = Y(B[11]) + 30, y1 = Y(A[11]) - 30, e = eOut(np);
+    ctx.fillStyle = INK; const ym = (y0 + y1) / 2; const hh = (y1 - y0) / 2 * e;
+    ctx.fillRect(x, ym - hh, 2, hh * 2); ctx.fillRect(x - 8, ym - hh, 10, 2); ctx.fillRect(x - 8, ym + hh - 2, 10, 2);
+    const cp = seg(t, T.note + 0.1, T.note + 0.7); const n = Math.round(78 * eOut(cp));
+    ctx.save(); ctx.globalAlpha *= clamp(cp * 3); F(86, 800, SANS, -2); ctx.fillStyle = ACC; ctx.textAlign = 'left';
+    const tx = x + 26; const mw = ctx.measureText('−%').width; ctx.fillText('−%', tx, ym + 22); numText(String(n), tx + mw, ym + 22);
+    F(21, 400, SANS, 0); ctx.fillStyle = MUTED; ctx.fillText('12 haftada, ilk haftaya göre', tx + 4, ym + 58); ctx.restore(); }
+  // kaynak satırı
+  const sp = seg(t, 1.2, 1.7); if (sp > 0) { F(16, 400, SANS, 0.3); ctx.fillStyle = rgba(MUTED, sp * 0.9); ctx.textAlign = 'left'; ctx.fillText('Temsili veri. Dolgu sözcüğü: “şey”, “yani”, “hani” gibi anlam taşımayan sözcükler.', PX0, 985); }
+}
+function drawLine(D, col, lw, p, head, t) {
+  if (p <= 0) return;
+  const pts = D.map((v, i) => [X(i), Y(v)]); const segL = []; let tot = 0;
+  for (let i = 1; i < pts.length; i++) { const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); segL.push(l); tot += l; }
+  let rem = tot * p; ctx.beginPath(); ctx.moveTo(...pts[0]); let hx = pts[0][0], hy = pts[0][1], hv = D[0];
+  for (let i = 1; i < pts.length; i++) { const l = segL[i - 1];
+    if (rem >= l) { ctx.lineTo(...pts[i]); rem -= l; hx = pts[i][0]; hy = pts[i][1]; hv = D[i]; }
+    else { const f = rem / l; hx = lerp(pts[i - 1][0], pts[i][0], f); hy = lerp(pts[i - 1][1], pts[i][1], f); hv = lerp(D[i - 1], D[i], f); ctx.lineTo(hx, hy); break; } }
+  ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+  // veri noktaları (geçildikçe)
+  const passed = Math.floor(p * 11 + 1e-6);
+  if (head) for (let i = 0; i <= passed && i < 12; i++) { const sz = i === 11 || i === 0 ? 7 : 4.5;
+    ctx.fillStyle = PAPER; ctx.beginPath(); ctx.arc(X(i), Y(D[i]), sz + 2, 0, 7); ctx.fill(); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X(i), Y(D[i]), sz, 0, 7); ctx.fill(); }
+  if (head && p < 1) {   // uçtaki sayaç etiketi
+    ctx.fillStyle = col; ctx.beginPath(); ctx.arc(hx, hy, 9, 0, 7); ctx.fill();
+    F(30, 700, SANS, 0); ctx.fillStyle = INK; numText(fmt1(hv), hx + 16, hy - 20, 'left'); }
+  if (head && p >= 1) { F(22, 700, SANS, 0); ctx.fillStyle = ACC; ctx.textAlign = 'center';
+    ctx.textAlign = 'right'; ctx.fillText('14,2', X(0) - 16, Y(D[0]) + 8); ctx.textAlign = 'center'; ctx.fillText('3,1', X(11), Y(D[11]) + 44); }
+}
+
+// ── sahne 2 ──────────────────────────────────────────────────────────────────
+function scene2(t, oy) {
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  const b = T.scroll1 - 0.45;
+  F(17, 700, SANS, 2.5); ctx.fillStyle = ACC; riseText('NE KADAR SIK?', PX0, oy + 150, seg(t, b, b + 0.55), 24);
+  F(66, 600, SERIF, -0.8); ctx.fillStyle = INK; riseText('Her gün tek konu, en kısa yol', PX0, oy + 232, seg(t, b + 0.1, b + 0.75), 76);
+  F(25, 400, SANS, 0); ctx.fillStyle = MUTED; riseText('Dolgu sözcüğü sayısının yarıya inmesi için geçen süre (hafta)', PX0, oy + 292, seg(t, b + 0.25, b + 0.85), 34);
+  const BX0 = 640, BX1 = 1640, unit = (BX1 - BX0) / 12, top = oy + 440, gap = 150, bh = 76;
+  // ölçek
+  for (let k = 0; k <= 12; k += 4) { const x = BX0 + k * unit, p = seg(t, T.bars + k * 0.02, T.bars + 0.4 + k * 0.02); if (p <= 0) continue;
+    ctx.fillStyle = k === 0 ? INK : GRID; ctx.fillRect(x - (k === 0 ? 1 : 0.5), top - 40, k === 0 ? 2 : 1, (gap * 2 + bh + 70) * eOut(p));
+    F(19, 400, SANS, 0); ctx.fillStyle = rgba(MUTED, p); ctx.textAlign = 'center'; ctx.fillText(k === 12 ? '12 hafta' : String(k), x, top - 54); }
+  BARS.forEach((d, i) => { const y = top + i * gap; const p = seg(t, T.bars + 0.25 + i * 0.16, T.bars + 1.15 + i * 0.16); if (p <= 0) return;
+    const e = eOut4(p); ctx.textAlign = 'right'; F(28, i === 0 ? 700 : 500, SANS, 0); ctx.fillStyle = rgba(i === 0 ? INK : DARK, clamp(p * 2.5));
+    ctx.fillText(d.lab, BX0 - 28, y + bh / 2 + 10);
+    ctx.fillStyle = d.col; ctx.fillRect(BX0, y, d.v * unit * e, bh);
+    F(34, 800, SANS, -0.5); ctx.fillStyle = d.col === GREY ? DARK : d.col; ctx.textAlign = 'left';
+    const n = Math.max(1, Math.round(d.v * e)); const w = numText(String(n), BX0 + d.v * unit * e + 18, y + bh / 2 + 12);
+    F(22, 400, SANS, 0); ctx.fillStyle = rgba(MUTED, clamp(p * 2 - 1)); ctx.fillText(' hafta', BX0 + d.v * unit * e + 18 + w, y + bh / 2 + 12); });
+  // kısa not
+  const np = seg(t, T.bars + 1.35, T.bars + 1.8);
+  if (np > 0) { F(22, 400, SANS, 0); ctx.textAlign = 'left'; ctx.fillStyle = rgba(INK, np);
+    const y = top + bh / 2 + 12, x = BX0 + 4 * unit + 150;
+    ctx.fillStyle = rgba(ACC, np); ctx.fillText('Haftada bir çalışana göre', x + (1 - eOut(np)) * 12, y - 16);
+    F(22, 700, SANS, 0); ctx.fillText('yaklaşık 3 kat hızlı', x + (1 - eOut(np)) * 12, y + 14); }
+  const sp = seg(t, b + 0.4, b + 0.9); if (sp > 0) { F(16, 400, SANS, 0.3); ctx.fillStyle = rgba(MUTED, sp * 0.9); ctx.textAlign = 'left'; ctx.fillText('Temsili veri.', PX0, oy + 985); }
+}
+
+// ── logo (irticalen: konuşma balonu + 3 elmas) ───────────────────────────────
+function logo(x, y, size, a) {
+  const b = size * 0.62, k = b * 1.15 / 92; ctx.save(); ctx.globalAlpha = a;
+  const P = (pts, col) => { ctx.fillStyle = col; ctx.beginPath(); pts.forEach((p, i) => { const u = x + p[0] * k, v = y - b * 0.95 + p[1] * k; i ? ctx.lineTo(u, v) : ctx.moveTo(u, v); }); ctx.closePath(); ctx.fill(); };
+  P([[0, 0], [92, 0], [92, 70], [40, 70], [14, 94], [14, 70], [0, 70]], INK);
+  [[22, PAPER], [46, ACC], [70, PAPER]].forEach(([cx, col]) => P([[cx, 25], [cx + 10, 35], [cx, 45], [cx - 10, 35]], col));
+  F(size, 600, SERIF, -0.5); ctx.fillStyle = INK; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillText('irticalen.', x + b * 1.45, y);
+  ctx.restore();
+}
+
+function render(t) {
+  ctx.globalAlpha = 1; ctx.drawImage(PAPER_CV, 0, 0);
+  const sc = eIO(seg(t, T.scroll0, T.scroll1)); const oy = -H * sc;
+  const fo = 1 - eIO(seg(t, T.fade, T.fade + 0.45));
+  ctx.save(); ctx.globalAlpha = fo; ctx.translate(0, -18 * seg(t, T.fade, T.fade + 0.45));
+  if (sc < 1) { ctx.save(); ctx.translate(0, oy); scene1(t); ctx.restore(); }
+  if (sc > 0) scene2(t, oy + H);
+  ctx.restore();
+  const lp = seg(t, T.logo, T.logo + 0.45);
+  if (lp > 0) { ctx.save(); F(46, 600, SERIF, -0.5); const tw = ctx.measureText('irticalen.').width + 46 * 0.62 * 1.45;
+    logo(W / 2 - tw / 2, H / 2 + 16 + (1 - eOut(lp)) * 14, 46, eOut(lp)); ctx.restore(); }
+}
+let PAPER_CV;
+function prep() {
+  PAPER_CV = mk(W, H); const g = PAPER_CV.getContext('2d'); g.fillStyle = PAPER; g.fillRect(0, 0, W, H);
+  const im = g.getImageData(0, 0, W, H); for (let i = 0; i < im.data.length; i += 4) { const n = (Math.random() - 0.5) * 7; im.data[i] += n; im.data[i + 1] += n; im.data[i + 2] += n; }
+  g.putImageData(im, 0, 0);
+}
+window.draw = function (job) { render(job.t); return cv.toDataURL('image/jpeg', job.q || 0.92).split(',')[1]; };
+window.ready = document.fonts.ready.then(() => Promise.all([
+  document.fonts.load(`600 60px 'Source Serif 4'`, 'Konuştukça şey azalıyor ĞİŞÇÖÜ'),
+  ...[400, 500, 700, 800].map(w => document.fonts.load(`${w} 20px 'Libre Franklin'`, 'Doğaçlama ığüşöç ĞİŞÇÖÜ 0123−%'))])).then(prep);
+</script></body></html>

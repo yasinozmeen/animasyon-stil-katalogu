@@ -1,0 +1,291 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="yazi-tipleri.css"></head>
+<body style="margin:0;background:#000"><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+//  KARAKALEM (grafit eskiz) — 10 s vitrin klibi. window.draw({t}) → JPEG base64
+//  Eskiz defteri sayfası: önce açık yardımcı çizgiler (eksen, elips, kutu), sonra koyu kontur
+//  (iki geçişli), sonra tarama gölgeler; çizgiler 12 fps "boil" ile titrer. El yazısı not:
+//  "önce konuş, sonra düşün." Sayfa çevrilir → irticalen logosu karakalemle çizilir.
+//  Kurşun kalem izi kâğıt dişine takılır (grafit katmanı × kâğıt dişi maskesi).
+// ─────────────────────────────────────────────────────────────────────────────
+const W = 1920, H = 1080;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const eOut = x => 1 - Math.pow(1 - clamp(x), 3);
+const eInOut = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const eSin = x => .5 - .5 * Math.cos(Math.PI * clamp(x));
+function rng(seed) { let s = seed >>> 0 || 1; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const hash = (a, b, c) => { let h = (a * 374761393 + b * 668265263 + c * 2147483647) >>> 0; h = ((h ^ (h >>> 13)) * 1274126177) >>> 0; return (h >>> 0) / 4294967296; };
+const mk = (w = W, h = H) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const HAND = "'Caveat', cursive";
+const PAPER = '#eeebe3';
+
+// ── kâğıt + diş (bir kez) ─────────────────────────────────────────────────────
+const PAPERCV = mk(), TOOTH = mk();
+function buildPaper() {
+  const c = PAPERCV.getContext('2d');
+  c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+  const id = c.getImageData(0, 0, W, H), d = id.data, r = rng(3);
+  // düşük frekans bulut + ince diş
+  const low = mk(96, 54), lc = low.getContext('2d'), li = lc.createImageData(96, 54);
+  for (let i = 0; i < li.data.length; i += 4) { const v = 128 + (r() - .5) * 60; li.data[i] = li.data[i + 1] = li.data[i + 2] = v; li.data[i + 3] = 255; }
+  lc.putImageData(li, 0, 0); const big = mk(), bc = big.getContext('2d'); bc.imageSmoothingQuality = 'high'; bc.drawImage(low, 0, 0, W, H);
+  const bd = bc.getImageData(0, 0, W, H).data;
+  for (let i = 0; i < d.length; i += 4) {
+    const n = (r() - .5) * 14 + (bd[i] - 128) * .12;
+    d[i] += n; d[i + 1] += n; d[i + 2] += n * .9;
+  }
+  c.putImageData(id, 0, 0);
+  // sırt gölgesi (defter solda ciltli) + köşe kararması
+  const g = c.createLinearGradient(0, 0, 140, 0); g.addColorStop(0, 'rgba(60,55,45,0.22)'); g.addColorStop(1, 'rgba(60,55,45,0)'); c.fillStyle = g; c.fillRect(0, 0, 140, H);
+  const v = c.createRadialGradient(1000, 520, 400, 960, 540, 1200); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(50,40,30,0.16)'); c.fillStyle = v; c.fillRect(0, 0, W, H);
+  // diş maskesi: grafit yalnız kâğıdın tepelerine tutunur
+  const tc = TOOTH.getContext('2d'), ti = tc.createImageData(W, H), td = ti.data, r2 = rng(11);
+  for (let i = 0; i < td.length; i += 4) {
+    const k = (i / 4), x = k % W, y = (k / W) | 0;
+    const fib = Math.sin(x * .9 + y * .35) * .5 + .5;           // hafif yönlü kâğıt lifi
+    let a = .42 + r2() * .58 * (.8 + fib * .2) + (bd[i] - 128) / 400;
+    td[i] = td[i + 1] = td[i + 2] = 0; td[i + 3] = clamp(a, 0, 1) * 255;
+  }
+  tc.putImageData(ti, 0, 0);
+}
+
+// ── çizgi (stroke) üreticileri ────────────────────────────────────────────────
+const S1 = [], S2 = [];                  // sayfa 1 ve sayfa 2 çizgileri
+let SID = 0;
+function mkStroke(list, pts, t0, dur, w, a, opt = {}) { list.push({ id: SID++, pts, t0, dur, w, a, boil: opt.boil ?? 1.1, clip: opt.clip || null, ease: opt.ease || eSin }); }
+function sLine(list, x0, y0, x1, y1, t0, dur, w, a, opt = {}) {   // hafif yay + uçlarda taşma
+  const r = rng(SID * 7 + 1), over = opt.over ?? 10, bow = (opt.bow ?? 4) * (r() - .5) * 2;
+  const L = Math.hypot(x1 - x0, y1 - y0), ux = (x1 - x0) / L, uy = (y1 - y0) / L;
+  const ax = x0 - ux * over * r(), ay = y0 - uy * over * r(), bx = x1 + ux * over * r(), by = y1 + uy * over * r();
+  const n = Math.max(4, Math.round(L / 7)), pts = [];
+  for (let i = 0; i <= n; i++) { const u = i / n, s = Math.sin(u * Math.PI) * bow; pts.push([lerp(ax, bx, u) - uy * s, lerp(ay, by, u) + ux * s]); }
+  mkStroke(list, pts, t0, dur, w, a, opt);
+}
+function sArc(list, cx, cy, rx, ry, a0, a1, t0, dur, w, a, opt = {}) {
+  const r = rng(SID * 13 + 5), n = Math.max(8, Math.round(Math.abs(a1 - a0) * Math.max(rx, ry) / 7)), pts = [], wob = opt.wob ?? 2;
+  const ph = r() * 6;
+  for (let i = 0; i <= n; i++) { const u = i / n, ang = lerp(a0, a1, u), e = 1 + Math.sin(u * 5 + ph) * wob / Math.max(rx, ry); pts.push([cx + Math.cos(ang) * rx * e, cy + Math.sin(ang) * ry * e]); }
+  mkStroke(list, pts, t0, dur, w, a, opt);
+}
+function sPoly(list, P, t0, dur, w, a, opt = {}) {   // köşeli poligon, iki geçiş hissi
+  const pts = []; for (let i = 0; i < P.length - 1; i++) { const [x0, y0] = P[i], [x1, y1] = P[i + 1], L = Math.hypot(x1 - x0, y1 - y0), n = Math.max(2, Math.round(L / 7));
+    for (let k = 0; k < n; k++) pts.push([lerp(x0, x1, k / n), lerp(y0, y1, k / n)]); }
+  pts.push(P[P.length - 1]); mkStroke(list, pts, t0, dur, w, a, opt);
+}
+// tarama: bölge içinde paralel çizgiler, sırayla (sanatçının eli gibi) atılır
+function hatch(list, clip, x0, y0, x1, y1, ang, gap, t0, t1, w, a, opt = {}) {
+  const r = rng(SID * 31 + 9), ca = Math.cos(ang), sa = Math.sin(ang);
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, R = Math.hypot(x1 - x0, y1 - y0) / 2 + 20;
+  const lines = []; for (let d = -R; d <= R; d += gap * (0.8 + r() * .4)) lines.push(d);
+  lines.forEach((d, i) => {
+    const px = cx - sa * d, py = cy + ca * d, jl = R * (0.85 + r() * .3);
+    const tt = lerp(t0, t1, i / lines.length);
+    sLine(list, px - ca * jl, py - sa * jl + (r() - .5) * 8, px + ca * jl, py + sa * jl + (r() - .5) * 8, tt, .12 + r() * .06, w * (0.8 + r() * .4), a * (0.75 + r() * .35), { clip, bow: 3, over: 0, boil: opt.boil ?? .7 });
+  });
+}
+
+// ── mikrofon geometrisi ───────────────────────────────────────────────────────
+const MX = 860, TOP = 175, BOT = 595, HW = 135, BELT = 385;
+const stadium = c => { c.beginPath(); c.arc(MX, TOP + HW, HW, Math.PI, 0); c.lineTo(MX + HW, BOT - HW); c.arc(MX, BOT - HW, HW, 0, Math.PI); c.closePath(); };
+const castSh = c => { c.beginPath(); c.ellipse(MX + 90, 950, 300, 52, 0, 0, Math.PI * 2); c.clip(); c.beginPath(); c.rect(0, 0, W, H); for (let i = 0; i <= 72; i++) { const a = -i / 72 * Math.PI * 2; c[i ? 'lineTo' : 'moveTo'](MX + Math.cos(a) * 200, 918 + Math.sin(a) * 58); } c.closePath(); };
+function buildPage1() {
+  const L = S1;
+  // 1) yardımcı çizgiler (2H: açık, hızlı)
+  const g = { w: 1.4, a: .32 };
+  sLine(L, MX, 110, MX, 980, .30, .5, g.w, g.a, { over: 0 });
+  [TOP, BELT, BOT, 905].forEach((y, i) => sLine(L, MX - 330, y, MX + 330, y, .42 + i * .1, .35, g.w, g.a * .9, { over: 20 }));
+  sLine(L, MX - HW, 150, MX - HW, 620, .6, .3, g.w, g.a); sLine(L, MX + HW, 150, MX + HW, 620, .66, .3, g.w, g.a);
+  sArc(L, MX, TOP + HW, HW, HW, Math.PI * .9, Math.PI * 2.1, .75, .4, g.w, g.a);
+  sArc(L, MX, 905, 200, 46, 0, Math.PI * 2, .95, .45, g.w, g.a);
+  sArc(L, MX, BELT, 170, 290, Math.PI * .02, Math.PI * .98, 1.1, .5, g.w, g.a * .8);         // boyunduruk (yoke) yayı
+  sLine(L, MX - 250, 120, MX + 250, 120, 1.2, .3, g.w, g.a * .7); sLine(L, MX + 250, 120, MX + 250, 980, 1.3, .35, g.w, g.a * .6);
+  // 2) kontur (HB–2B, iki geçiş)
+  const k = { w: 3.1, a: .92 };
+  const contour = (t0) => {
+    const off = t0 > 2 ? 2.2 : 0;
+    sArc(L, MX + off * .3, TOP + HW, HW, HW, Math.PI, Math.PI * 2, t0, .45, k.w, k.a, { wob: 2.5 });
+    sLine(L, MX + HW, TOP + HW, MX + HW + off * .2, BOT - HW, t0 + .35, .2, k.w, k.a, { over: 4 });
+    sArc(L, MX, BOT - HW, HW, HW, 0, Math.PI, t0 + .5, .45, k.w, k.a, { wob: 2.5 });
+    sLine(L, MX - HW, BOT - HW, MX - HW - off * .2, TOP + HW, t0 + .9, .2, k.w, k.a, { over: 4 });
+  };
+  contour(1.25); contour(2.35);
+  // orta kuşak (metal bant)
+  sArc(L, MX, BELT - 14, HW, 20, 0, Math.PI, 1.9, .3, k.w, k.a); sArc(L, MX, BELT + 14, HW, 20, 0, Math.PI, 1.98, .3, k.w, k.a);
+  // boyunduruk: iki paralel U
+  const yoke = (rx, ry, t0) => sArc(L, MX, BELT, rx, ry, Math.PI * .03, Math.PI * .97, t0, .5, k.w, k.a * .95, { wob: 3 });
+  yoke(172, 292, 2.05); yoke(150, 268, 2.2);
+  [-1, 1].forEach((s, i) => { sArc(L, MX + s * 161, BELT, 24, 24, 0, Math.PI * 2, 2.25 + i * .1, .3, k.w, k.a); sArc(L, MX + s * 161, BELT, 9, 9, 0, Math.PI * 2, 2.4 + i * .1, .2, 2, .7); });
+  // gövde, bilezik, taban
+  sLine(L, MX - 16, 668, MX - 16, 890, 2.5, .25, k.w, k.a, { over: 3 }); sLine(L, MX + 16, 668, MX + 16, 890, 2.56, .25, k.w, k.a, { over: 3 });
+  sArc(L, MX, 712, 24, 7, 0, Math.PI, 2.62, .2, k.w, k.a); sArc(L, MX, 728, 24, 7, 0, Math.PI, 2.66, .2, k.w, k.a);
+  sLine(L, MX - 24, 712, MX - 24, 728, 2.64, .1, k.w, k.a, { over: 2 }); sLine(L, MX + 24, 712, MX + 24, 728, 2.68, .1, k.w, k.a, { over: 2 });
+  sArc(L, MX, 905, 200, 46, Math.PI * 1.02, Math.PI * 2.98, 2.7, .55, k.w, k.a, { wob: 3 });
+  sArc(L, MX, 930, 200, 46, 0, Math.PI, 2.95, .4, k.w, k.a, { wob: 3 });
+  sLine(L, MX - 200, 905, MX - 200, 930, 3.0, .1, k.w, k.a, { over: 2 }); sLine(L, MX + 200, 905, MX + 200, 930, 3.05, .1, k.w, k.a, { over: 2 });
+  // 3) ızgara halkaları (açık-orta)
+  for (let y = TOP + 34, i = 0; y < BOT - 20; y += 26, i++) {
+    if (Math.abs(y - BELT) < 30) continue;
+    const off = y < TOP + HW ? HW - Math.sqrt(Math.max(0, HW * HW - (TOP + HW - y) ** 2)) : y > BOT - HW ? HW - Math.sqrt(Math.max(0, HW * HW - (y - BOT + HW) ** 2)) : 0;
+    const rx = HW - off - 4; if (rx < 20) continue;
+    sArc(L, MX, y, rx, 12, Math.PI * .04, Math.PI * .96, 2.9 + i * .07, .22, 1.5, .5, { wob: 1.5 });
+  }
+  for (let i = -3; i <= 3; i++) { const x = MX + i * 36; const hh = Math.sqrt(HW * HW - (i * 36) ** 2);
+    sLine(L, x, TOP + HW - hh * .92 + 8, x, BELT - 18, 3.2 + (i + 3) * .05, .2, 1.2, .35, { over: 0, bow: 2 }); sLine(L, x, BELT + 22, x, BOT - HW + hh * .92 - 8, 3.25 + (i + 3) * .05, .2, 1.2, .35, { over: 0, bow: 2 }); }
+  // 4) tarama gölge: ışık sol üstten → sağ taraf koyu
+  const capClip = (xFrom) => c => { stadium(c); c.clip(); c.beginPath(); c.rect(MX + xFrom, 0, 600, H); };
+  hatch(L, capClip(10), MX + 10, TOP, MX + HW, BOT, -1.05, 9, 3.3, 4.2, 1.7, .7);
+  hatch(L, capClip(62), MX + 62, TOP, MX + HW, BOT, .5, 8, 3.9, 4.6, 1.6, .65);
+  hatch(L, capClip(100), MX + 100, TOP, MX + HW, BOT, -1.05, 5, 4.3, 4.8, 1.7, .7);
+  hatch(L, capClip(118), MX + 118, TOP, MX + HW, BOT, .2, 5, 4.6, 5.0, 1.6, .65);
+  // boyunduruk sağ kolu ve gövde
+  const yokeR = c => { c.beginPath(); c.ellipse(MX, BELT, 172, 292, 0, 0, Math.PI); c.ellipse(MX, BELT, 150, 268, 0, Math.PI, 0, true); c.closePath(); c.clip(); c.beginPath(); c.rect(MX + 20, 0, 400, H); };
+  hatch(L, yokeR, MX, BELT, MX + 175, BELT + 300, -1.05, 6, 3.6, 4.3, 1.6, .75);
+  hatch(L, c => { c.beginPath(); c.rect(MX + 2, 668, 14, 222); }, MX, 668, MX + 16, 890, -1.2, 6, 3.8, 4.1, 1.3, .55);
+  // taban yan yüzü + zemine düşen gölge (yoğun, çapraz)
+  const baseSide = c => { c.beginPath(); c.ellipse(MX, 930, 200, 46, 0, 0, Math.PI); c.lineTo(MX - 200, 905); c.ellipse(MX, 905, 200, 46, 0, Math.PI, 0, true); c.closePath(); };
+  hatch(L, baseSide, MX - 200, 900, MX + 200, 980, -1.1, 6, 3.7, 4.4, 1.6, .7);
+  hatch(L, castSh, MX - 210, 895, MX + 390, 1005, -.35, 6, 4.0, 4.9, 1.6, .75);
+  hatch(L, castSh, MX - 210, 895, MX + 390, 1005, .5, 9, 4.5, 5.1, 1.3, .45);
+  // 5) ses dalgaları (sol) + el yazısı not (sağ) + ok
+  [220, 272, 324].forEach((R, i) => sArc(L, MX - 40, BELT - 20, R, R * 1.05, Math.PI * .83, Math.PI * 1.17, 4.4 + i * .14, .3, 2.4 - i * .3, .8 - i * .15, { wob: 3 }));
+  // ok: nottan kapsüle kıvrılan
+  { const pts = []; for (let i = 0; i <= 26; i++) { const u = i / 26; const x = lerp(1265, 1030, u), y = 318 - Math.sin(u * Math.PI) * 60 + u * 40; pts.push([x, y]); } mkStroke(L, pts, 5.25, .4, 2.2, .75); }
+  sLine(L, 1030, 358, 1058, 340, 5.6, .1, 2.2, .75, { over: 0 }); sLine(L, 1030, 358, 1062, 368, 5.66, .1, 2.2, .75, { over: 0 });
+}
+const NOTES = [{ txt: 'önce konuş,', x: 1285, y: 330, size: 112, t0: 4.75, t1: 5.35, rot: -.05 }, { txt: 'sonra düşün.', x: 1315, y: 448, size: 112, t0: 5.3, t1: 5.95, rot: -.05 }];
+
+// ── sayfa 2: logo eskizi ──────────────────────────────────────────────────────
+const LG = { x: 330, y: 330, k: 4.1 };
+const LP = (px, py) => [LG.x + px * LG.k, LG.y + py * LG.k];
+const BUB = [[0, 0], [92, 0], [92, 70], [40, 70], [14, 94], [14, 70], [0, 70], [0, 0]];
+const DIA = [22, 46, 70].map(cx => [[cx, 25], [cx + 10, 35], [cx, 45], [cx - 10, 35], [cx, 25]]);
+function buildPage2() {
+  const L = S2, t = 6.75;
+  // yardımcılar
+  sLine(L, LG.x - 60, LP(0, 0)[1], LG.x + 92 * LG.k + 900, LP(0, 0)[1], t, .3, 1.3, .22, { over: 0 });
+  sLine(L, LG.x - 60, LP(0, 70)[1], LG.x + 92 * LG.k + 900, LP(0, 70)[1], t + .08, .3, 1.3, .22, { over: 0 });
+  sLine(L, LP(46, 0)[0], LG.y - 60, LP(46, 0)[0], LP(0, 100)[1] + 30, t + .16, .3, 1.3, .2, { over: 0 });
+  // balon konturu iki geçiş
+  sPoly(L, BUB.map(p => LP(...p)), t + .2, .7, 2.8, .85, { boil: 1.2 });
+  sPoly(L, BUB.map(p => { const q = LP(...p); return [q[0] + 2.5, q[1] - 1.5]; }), t + .5, .6, 1.8, .55, { boil: 1.2 });
+  DIA.forEach((d, i) => sPoly(L, d.map(p => LP(...p)), t + .7 + i * .1, .25, 2.4, .85));
+  // balon içi koyu tarama (diamond'lar boş kâğıt kalır), orta elmas ayrı açıda
+  const bubClip = c => { c.beginPath(); BUB.forEach((p, i) => { const q = LP(...p); i ? c.lineTo(...q) : c.moveTo(...q); }); c.closePath();
+    DIA.forEach(d => { d.forEach((p, i) => { const q = LP(...p); i ? c.lineTo(...q) : c.moveTo(...q); }); c.closePath(); }); c.clip('evenodd'); c.beginPath(); c.rect(0, 0, W, H); };
+  const [bx0, by0] = LP(0, 0), [bx1, by1] = LP(92, 94);
+  hatch(L, bubClip, bx0, by0, bx1, by1, -1.05, 9, t + .85, t + 1.45, 1.7, .6);
+  hatch(L, bubClip, bx0, by0, bx1, by1, .45, 10, t + 1.2, t + 1.7, 1.5, .5);
+  const midD = c => { c.beginPath(); DIA[1].forEach((p, i) => { const q = LP(...p); i ? c.lineTo(...q) : c.moveTo(...q); }); c.closePath(); };
+  const [dx0, dy0] = LP(36, 25), [dx1, dy1] = LP(56, 45);
+  hatch(L, midD, dx0, dy0, dx1, dy1, -.3, 5, t + 1.3, t + 1.55, 1.4, .55);
+  // alt çizgi
+  { const pts = []; for (let i = 0; i <= 40; i++) { const u = i / 40; pts.push([lerp(870, 1650, u), 690 + Math.sin(u * 3.2) * 8 - u * 10]); } mkStroke(L, pts, 8.45, .35, 3, .7); }
+}
+const WORD = { txt: 'irticalen.', x: 840, y: 625, size: 280, t0: 7.65, t1: 8.5 };
+
+// parmakla/stump ile yayılmış ton: tarama altına yumuşak grafit
+function smudge(c, t) {
+  const u = eInOut(seg(t, 4.2, 5.2)); if (u <= 0) return;
+  c.save(); c.globalAlpha = .38 * u;
+  stadium(c); c.clip();
+  const g = c.createLinearGradient(MX - 40, 0, MX + HW, 0); g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(.55, 'rgba(0,0,0,0.35)'); g.addColorStop(1, 'rgba(0,0,0,0.8)');
+  c.fillStyle = g; c.fillRect(MX - HW, TOP, HW * 2, BOT - TOP); c.restore();
+  c.save(); castSh(c); c.clip(); c.globalAlpha = .7 * u; c.filter = 'blur(14px)'; c.fillStyle = '#000';
+  c.beginPath(); c.ellipse(MX + 110, 952, 250, 36, 0, 0, Math.PI * 2); c.fill(); c.restore();
+}
+// ── çizim ────────────────────────────────────────────────────────────────────
+const G = mk(), gx = G.getContext('2d');           // grafit katmanı
+const P1 = mk(), P2 = mk();
+function drawStroke(c, s, t, bf) {
+  const u = s.ease(seg(t, s.t0, s.t0 + s.dur)); if (u <= 0) return;
+  const n = s.pts.length, m = u * (n - 1), mi = Math.floor(m);
+  // boil: 12 fps, çizgi başına küçük kayma + boy boyu hafif dalga
+  const ph = hash(s.id, bf, 1) * 6.28, ox = (hash(s.id, bf, 2) - .5) * 2 * s.boil, oy = (hash(s.id, bf, 3) - .5) * 2 * s.boil;
+  const P = i => { const p = s.pts[i], w = Math.sin(i * .35 + ph) * s.boil * .6; return [p[0] + ox + w, p[1] + oy - w * .5]; };
+  const path = (i0, i1) => { c.beginPath(); const a = P(i0); c.moveTo(a[0], a[1]); for (let i = i0 + 1; i <= i1; i++) { const p = P(i); c.lineTo(p[0], p[1]); }
+    if (i1 === mi && mi < n - 1) { const a2 = P(mi), b2 = P(mi + 1), f = m - mi; c.lineTo(lerp(a2[0], b2[0], f), lerp(a2[1], b2[1], f)); } };
+  if (s.clip) { c.save(); s.clip(c); c.clip(); }
+  c.globalAlpha = s.a * .75; c.lineWidth = s.w; path(0, mi); c.stroke();
+  const i0 = Math.floor(mi * .15), i1 = Math.max(i0, Math.floor(mi * .85));            // basınç: orta kısım koyu
+  if (i1 > i0) { c.globalAlpha = s.a * .45; c.lineWidth = s.w * .55; path(i0, i1); c.stroke(); }
+  if (s.clip) c.restore();
+}
+function writeText(c, N, t, bf) {
+  const u = seg(t, N.t0, N.t1); if (u <= 0) return;
+  c.save(); c.font = `700 ${N.size}px ${HAND}`; c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+  const tw = c.measureText(N.txt).width;
+  c.translate(N.x + (hash(N.x, bf, 4) - .5) * 1.6, N.y + (hash(N.y, bf, 5) - .5) * 1.6); c.rotate(N.rot || 0);
+  c.beginPath(); c.rect(-10, -N.size, (tw + 20) * eInOut(u), N.size * 1.5); c.clip();
+  c.globalAlpha = .92; c.fillStyle = '#000'; c.fillText(N.txt, 0, 0);
+  c.globalAlpha = .35; c.fillText(N.txt, 1.5, -1);                                     // ikinci kalem geçişi
+  c.restore();
+}
+function renderPage(target, list, texts, t, bf) {
+  gx.setTransform(1, 0, 0, 1, 0, 0); gx.globalCompositeOperation = 'source-over'; gx.globalAlpha = 1;
+  gx.clearRect(0, 0, W, H); gx.strokeStyle = '#000'; gx.lineCap = 'round'; gx.lineJoin = 'round';
+  for (const s of list) drawStroke(gx, s, t, bf);
+  for (const N of texts) writeText(gx, N, t, bf);
+  if (list === S1) smudge(gx, t);
+  gx.globalAlpha = 1; gx.globalCompositeOperation = 'destination-in'; gx.drawImage(TOOTH, 0, 0); gx.globalCompositeOperation = 'source-over';
+  const c = target.getContext('2d'); c.globalAlpha = 1; c.globalCompositeOperation = 'source-over'; c.drawImage(PAPERCV, 0, 0);
+  // grafit: koyu gri, hafif mavimsi; multiply ile kâğıda
+  c.globalCompositeOperation = 'multiply'; c.globalAlpha = 1;
+  const tint = mk.tint || (mk.tint = mk()); const tc = tint.getContext('2d');
+  tc.globalCompositeOperation = 'source-over'; tc.clearRect(0, 0, W, H); tc.drawImage(G, 0, 0); tc.globalCompositeOperation = 'source-in'; tc.fillStyle = '#1d1e24'; tc.fillRect(0, 0, W, H);
+  c.drawImage(tint, 0, 0); c.globalCompositeOperation = 'source-over';
+}
+let ZOOM = 1;
+function drawP1(c) { c.save(); c.translate(980, 560); c.scale(ZOOM, ZOOM); c.translate(-980, -560); c.drawImage(P1, 0, 0); c.restore(); }
+function renderFrame(t) {
+  const bf = Math.floor(t * 12);                   // 12 fps titreme
+  const flip = eInOut(seg(t, 6.15, 7.0));
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.filter = 'none';
+  ZOOM = 1 + .05 * eSin(seg(t, 0, 6.2));                              // defterin üstüne yavaşça eğilen bakış
+  if (flip <= 0) { renderPage(P1, S1, NOTES, t, bf); drawP1(ctx); }
+  else {
+    renderPage(P1, S1, NOTES, Math.min(t, 6.15), bf); renderPage(P2, S2, [WORD], t, bf);
+    if (flip >= 1) ctx.drawImage(P2, 0, 0);
+    else pageTurn(flip);
+  }
+  // giriş/çıkış
+  const f = Math.min(eOut(seg(t, 0, .45)), 1 - eInOut(seg(t, 9.45, 10)));
+  if (f < 1) { ctx.fillStyle = `rgba(22,21,24,${(1 - f) * (t < 1 ? .9 : 1)})`; ctx.fillRect(0, 0, W, H); }
+}
+// sayfa çevirme: eğik katlama çizgisi sağdan sola geçer; katlanan kısım (sayfanın arkası) sola yatar
+function pageTurn(p) {
+  const ang = -.16;                                  // katlama çizgisi hafif eğik
+  const fx = lerp(W + 260, -420, p);                  // çizginin orta noktası
+  const nx = Math.cos(ang), ny = Math.sin(ang);       // çizgi normali (sağa bakan)
+  const dx = -ny, dy = nx;                            // çizgi yönü
+  const halfLeft = c => { c.beginPath(); const L = 3000; c.moveTo(fx + dx * L, H / 2 + dy * L); c.lineTo(fx - dx * L, H / 2 - dy * L); c.lineTo(fx - dx * L - nx * L, H / 2 - dy * L - ny * L); c.lineTo(fx + dx * L - nx * L, H / 2 + dy * L - ny * L); c.closePath(); };
+  ctx.drawImage(P2, 0, 0);
+  // yeni sayfaya kıvrım gölgesi (çizginin sağında)
+  ctx.save(); const g = ctx.createLinearGradient(fx, H / 2, fx + nx * 120, H / 2 + ny * 120);
+  g.addColorStop(0, 'rgba(30,25,20,0.35)'); g.addColorStop(1, 'rgba(30,25,20,0)'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); ctx.restore();
+  ctx.save(); halfLeft(ctx); ctx.clip(); drawP1(ctx);
+  // katlanan kanat: sayfanın sağ parçasının çizgiye göre yansıması (arka yüz)
+  // yansıma matrisi: I - 2 n nᵀ, çizgi üzerindeki nokta (fx, H/2) etrafında
+  const a = 1 - 2 * nx * nx, b = -2 * nx * ny, d = 1 - 2 * ny * ny;
+  const ex = fx - (a * fx + b * H / 2), ey = H / 2 - (b * fx + d * H / 2);
+  ctx.save(); ctx.transform(a, b, b, d, ex, ey);
+  ctx.beginPath(); ctx.rect(0, 0, W, H);
+  ctx.shadowColor = 'rgba(20,15,10,0.45)'; ctx.shadowBlur = 40; ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0;
+  ctx.fillStyle = '#e4e0d6'; ctx.fill(); ctx.shadowColor = 'transparent';
+  ctx.clip(); ctx.globalAlpha = .07; drawP1(ctx); ctx.globalAlpha = 1;       // arkadan sızan grafit (ayna)
+  ctx.restore();
+  // kanat üstünde katlama ışığı
+  const g2 = ctx.createLinearGradient(fx, H / 2, fx - nx * 160, H / 2 - ny * 160);
+  g2.addColorStop(0, 'rgba(255,255,255,0.0)'); g2.addColorStop(.25, 'rgba(255,255,255,0.35)'); g2.addColorStop(1, 'rgba(120,110,95,0.12)');
+  ctx.fillStyle = g2; ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+window.draw = function (job) { renderFrame(job.t); return cv.toDataURL('image/jpeg', job.q || 0.92).split(',')[1]; };
+window.ready = Promise.all([document.fonts.load(`700 92px ${HAND}`, 'önce konuş sonra düşün irticalen')]).then(() => document.fonts.ready).then(() => {
+  buildPaper(); buildPage1(); buildPage2(); renderFrame(0);
+});
+</script></body></html>

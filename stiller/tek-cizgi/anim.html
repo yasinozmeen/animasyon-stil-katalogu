@@ -1,0 +1,122 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;background:#f3eee4}canvas{display:block}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script src="common.js"></script>
+<script>
+// TEK ÇİZGİ — kopmayan tek bir mürekkep çizgisi: konuşma balonu → mikrofon → "merhaba"
+const PAPER = '#f3eee4', INK = '#1e1c19', ACC = '#c4502f';
+const HY = 742;               // ufuk çizgisi
+const N = 2600;               // morph için ortak nokta sayısı
+const X0 = -80, X1 = 2000;
+
+// --- Kâğıt dokusu (bir kez) ---
+const paper = mk(W, H);
+{ const c = paper.getContext('2d'); c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+  const g = c.createRadialGradient(960, 520, 500, 960, 540, 1300); g.addColorStop(0, 'rgba(255,252,245,0.22)'); g.addColorStop(1, 'rgba(120,100,70,0.13)');
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  const id = c.getImageData(0, 0, W, H), d = id.data, r = rng(7);
+  for (let k = 0; k < d.length; k += 4) { const n = (r() - .5) * 10; d[k] += n; d[k + 1] += n; d[k + 2] += n; }
+  c.putImageData(id, 0, 0);
+  // lif izleri
+  c.strokeStyle = 'rgba(110,90,60,0.05)'; c.lineWidth = 1;
+  for (let i = 0; i < 900; i++) { const x = r() * W, y = r() * H, a = r() * Math.PI, l = 6 + r() * 22; c.beginPath(); c.moveTo(x, y); c.quadraticCurveTo(x + Math.cos(a) * l * .5 + (r() - .5) * 6, y + Math.sin(a) * l * .5 + (r() - .5) * 6, x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke(); }
+}
+
+// --- Şekiller: hepsi soldan girer, ufukta ilerler, şekli çizer, sağdan çıkar ---
+function shapeBubble() {
+  const p = P().M(640, HY);
+  p.S([[760, HY - 4], [820, HY - 40], [850, 640]], 20);             // kuyruğun sol kenarı
+  const L = 700, R = 1220, T = 300, B = 640;
+  p.S([[760, B], [L + 10, B - 8], [L, B - 80], [L - 4, 470], [L + 2, T + 80], [L + 22, T + 14], [L + 80, T], [960, T - 6], [R - 80, T], [R - 16, T + 18], [R, T + 80], [R + 4, 470], [R, B - 80], [R - 14, B - 10], [R - 80, B], [1040, B + 2]], 18);
+  // alt kenar kuyruğa kadar sürer, sonra ince bir V ile üç elmasa uzanır (kesişme yok)
+  const cy = 450, dx = 112, s = 34;
+  p.S([[1000, B + 1], [930, B], [914, 628], [960, 560], [1040, 510], [1060 + 6, cy + s + 2]], 18);
+  for (let k = 1; k >= -1; k--) { const cx = 960 + k * dx; p.S([[cx + 3, cy + s], [cx + s, cy], [cx, cy - s], [cx - s, cy], [cx - 3, cy + s], ...(k > -1 ? [[cx - dx * .5, cy + s + 8]] : [])], 10); }
+  p.S([[866, 530], [884, 590], [900, 634], [896, 650], [850, 700], [810, HY - 2], [860, HY]], 20);
+  return { a: 640, b: 860, p };
+}
+function shapeMic() {
+  const p = P().M(760, HY);
+  p.S([[840, HY - 2], [880, HY - 28], [960, HY - 34], [1040, HY - 28], [1080, HY - 2]], 16);   // taban kavisi
+  p.S([[1010, HY - 6], [962, HY - 30], [958, 660], [960, 600]], 16);      // gövde çubuğu
+  p.S([[958, 578], [900, 572], [858, 530], [852, 470]], 16);              // U tutucu, sol kol
+  const cx = 960, top = 196, bot = 520, hw = 92;
+  p.S([[cx - hw, 470], [cx - hw, 300], [cx - hw + 10, 236], [cx - 40, top + 4], [cx, top], [cx + 40, top + 4], [cx + hw - 10, 236], [cx + hw, 300], [cx + hw, 470], [cx + hw - 12, bot - 12], [cx + 40, bot], [cx, bot + 2], [cx - 40, bot], [cx - hw + 8, bot - 18], [cx - hw + 2, 440]], 16);
+  const ys = [262, 298, 334, 370];                                        // ızgara zikzakları
+  p.S([[cx - hw + 6, 380], [cx - hw + 20, ys[3]]], 10);
+  ys.slice().reverse().forEach((y, i) => { const lt = i % 2 === 0; p.S(lt ? [[cx + hw - 20, y], [cx + hw - 22, y - 36]] : [[cx - hw + 22, y], [cx - hw + 22, y - 36]], 12); });
+  p.S([[cx + 30, 232], [cx + hw + 14, 330], [cx + 108, 470], [1062, 530], [1010, 574], [962, 580]], 18);
+  p.S([[962, 640], [964, HY - 30], [1080, HY - 4], [1160, HY]], 16);
+  return { a: 760, b: 1160, p };
+}
+function shapeWord() {
+  const pts = [
+    [560, 690], [600, 640],
+    [612, 560], [616, 522], [620, 560], [621, 640], [622, 575], [640, 535], [664, 528], [682, 548], [686, 640], [688, 575], [706, 535], [730, 528], [748, 550], [750, 612], [760, 640], [784, 632],       // m
+    [808, 606], [826, 575], [822, 548], [802, 548], [790, 575], [794, 620], [816, 640], [846, 628],                                                                                                         // e
+    [868, 566], [874, 540], [888, 552], [904, 540], [906, 596], [910, 640], [932, 628],                                                                                                                     // r
+    [960, 560], [982, 460], [990, 395], [978, 372], [962, 392], [958, 470], [960, 640], [962, 590], [984, 540], [1010, 536], [1024, 570], [1026, 626], [1044, 642], [1068, 626],                          // h
+    [1112, 552], [1090, 532], [1066, 544], [1056, 590], [1066, 632], [1092, 632], [1110, 596], [1114, 548], [1116, 612], [1128, 640], [1152, 630],                                                        // a
+    [1180, 560], [1200, 450], [1204, 395], [1190, 374], [1176, 398], [1174, 480], [1176, 632], [1198, 642], [1226, 626], [1238, 590], [1226, 556], [1204, 556], [1206, 578], [1236, 580], [1262, 572],     // b
+    [1306, 552], [1284, 532], [1260, 544], [1250, 590], [1260, 632], [1286, 632], [1304, 596], [1308, 548], [1310, 612], [1322, 640], [1350, 634]];                                          // a
+  const sc = 1.32, ox = 935, oy = 560;
+  const q = pts.map(([x, y]) => [960 + (x - ox) * sc, 520 + (y - oy) * sc]);
+  const p = P().M(360, HY).S([[420, HY - 6], ...q], 14);
+  p.S([[1610, 668], [1660, 718], [1720, HY - 1], [1780, HY]], 16);
+  return { a: 360, b: 1780, p };
+}
+const NI = 520, NB = 1560, NO = N - NI - NB;
+function build(sh) {
+  const a = P().M(X0, HY).L(sh.a, HY).resample(NI), o = P().M(sh.b, HY).L(X1, HY).resample(NO), b = sh.p.resample(NB);
+  const r = new Path(); r.p = [...a.p, ...b.p, ...o.p]; return r.done();
+}
+const SH = [shapeBubble(), shapeMic(), shapeWord()].map(build);
+
+// kalınlık (kalem baskısı) — yay uzunluğuna bağlı yavaş dalga
+const WID = new Float32Array(N); { for (let i = 0; i < N; i++) { const u = i / N; WID[i] = 5.6 + 1.2 * Math.sin(u * 37.0) * Math.sin(u * 11.3 + 1) + 0.6 * Math.sin(u * 91); } }
+
+function strokePts(pts, i0, i1) {
+  // değişken kalınlıklı çizim (parçalar hâlinde)
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = INK;
+  const CH = 6;
+  for (let a = Math.max(0, Math.floor(i0)); a < i1 - 1; a += CH) {
+    const b = Math.min(Math.ceil(i1) - 1, a + CH);
+    ctx.lineWidth = WID[a]; ctx.beginPath(); ctx.moveTo(pts[a][0], pts[a][1]);
+    for (let k = a + 1; k <= b; k++) ctx.lineTo(pts[k][0], pts[k][1]);
+    ctx.stroke();
+  }
+}
+function morph(A, B, tau, stag = 0.55) {
+  const out = new Array(N);
+  for (let i = 0; i < N; i++) { const u = eio(clamp(tau * (1 + stag) - stag * (i / N))); out[i] = [lerp(A.p[i][0], B.p[i][0], u), lerp(A.p[i][1], B.p[i][1], u)]; }
+  return out;
+}
+function dot(x, y, r, a = 1) { ctx.save(); ctx.globalAlpha = a; ctx.fillStyle = ACC; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill(); ctx.restore(); }
+
+const TL = { in0: 0.35, in1: 3.0, m1a: 3.35, m1b: 4.75, m2a: 5.1, m2b: 6.65, out0: 8.05, out1: 9.55, end: 10 };
+
+function render(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.drawImage(paper, 0, 0);
+  // çok hafif kamera nefesi
+  const sc = 1 + 0.025 * eio(seg(t, 0, 10));
+  ctx.setTransform(sc, 0, 0, sc, 960 - 960 * sc, 540 - 540 * sc);
+  let pts, i0 = 0, i1 = N, head = null, tail = null;
+  if (t < TL.m1a) { pts = SH[0].p;
+    const u = eio(seg(t, TL.in0, TL.in1)); i1 = u * (N - 1) + 1; if (u > 0 && u < 1) head = pts[Math.min(N - 1, Math.floor(i1))]; if (u <= 0) i1 = 0; }
+  else if (t < TL.m2a) pts = morph(SH[0], SH[1], seg(t, TL.m1a, TL.m1b));
+  else pts = morph(SH[1], SH[2], seg(t, TL.m2a, TL.m2b));
+  if (t >= TL.out0) { const u = eio(seg(t, TL.out0, TL.out1)); i0 = u * (N - 1); if (u < 1) tail = pts[Math.floor(i0)]; }
+  if (i1 - i0 > 1) strokePts(pts, i0, i1);
+  if (head) dot(head[0], head[1], 7.5);
+  if (tail && i0 > 1) dot(tail[0], tail[1], 7.5);
+  // alt yazı (çok küçük, zarif)
+  const ca = seg(t, 7.0, 7.5) * (1 - seg(t, 8.3, 8.8));
+  if (ca > 0) { ctx.save(); ctx.globalAlpha = ca; ctx.fillStyle = INK; ctx.font = "italic 500 40px 'Cormorant Garamond'"; ctx.textAlign = 'center'; ctx.letterSpacing = '2px';
+    ctx.fillText('bir çizgi, bir söz.', 960, 880 + 10 * (1 - eout(seg(t, 7.0, 7.6)))); ctx.restore(); }
+  // son: kâğıda yumuşak çıkış
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const fo = seg(t, 9.6, 10); if (fo > 0) { ctx.globalAlpha = fo * 0.35; ctx.drawImage(paper, 0, 0); ctx.globalAlpha = 1; }
+}
+window.ready = loadFont('Cormorant Garamond', 'CormorantGaramond-500', 500, 'italic').then(() => document.fonts.load("italic 500 40px 'Cormorant Garamond'", 'çöğ'));
+window.draw = ({ t }) => { render(t); return cv.toDataURL('image/jpeg', 0.92).split(',')[1]; };
+</script></body></html>

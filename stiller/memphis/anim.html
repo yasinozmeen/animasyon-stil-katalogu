@@ -1,0 +1,294 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style id="fonts">
+@font-face {
+  font-family: 'Rubik';
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url(fonts/rubik_v31_iJWKBXyIfDnIV7nPrXyw023e1Ik.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Rubik';
+  font-style: normal;
+  font-weight: 600;
+  font-display: block;
+  src: url(fonts/rubik_v31_iJWKBXyIfDnIV7nBrXyw023e.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Rubik';
+  font-style: normal;
+  font-weight: 800;
+  font-display: block;
+  src: url(fonts/rubik_v31_iJWKBXyIfDnIV7nPrXyw023e1Ik.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Rubik';
+  font-style: normal;
+  font-weight: 800;
+  font-display: block;
+  src: url(fonts/rubik_v31_iJWKBXyIfDnIV7nBrXyw023e.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Rubik';
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src: url(fonts/rubik_v31_iJWKBXyIfDnIV7nPrXyw023e1Ik.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Rubik';
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src: url(fonts/rubik_v31_iJWKBXyIfDnIV7nBrXyw023e.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Shrikhand';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url(fonts/shrikhand_v17_a8IbNovtLWfR7T7bMJwrDYKR8Ttcte1q.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Shrikhand';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url(fonts/shrikhand_v17_a8IbNovtLWfR7T7bMJwrA4KR8TtctQ.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<style>html,body{margin:0;background:#ffd9ea}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// 80'ler Memphis: konu çarkı döner, MÜZİK'te durur → zikzak bant geçişi → konuşma balonu + zıplayan "KONUŞ!"
+const W = 1920, H = 1080, cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const DUR = 9.5, FR = "'Rubik', sans-serif", FS = "'Shrikhand', cursive";
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const eOut = x => 1 - Math.pow(1 - x, 3), eIn = x => x * x * x;
+const eOutQ = x => 1 - Math.pow(1 - x, 4);
+const eBack = (x, s = 2.6) => { const c = s + 1; return 1 + c * Math.pow(x - 1, 3) + s * Math.pow(x - 1, 2); };
+const eElastic = x => x <= 0 ? 0 : x >= 1 ? 1 : Math.pow(2, -9 * x) * Math.sin((x * 10 - 0.75) * (2 * Math.PI) / 3) + 1;
+function off(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+const C = { ink: '#161616', cream: '#fff8ec', pink: '#ff71ce', yellow: '#ffce5c', teal: '#86ccca', purple: '#6a7bb4', neon: '#ff2e88', blue: '#2d5bff', lime: '#d7ff3c', bg1: '#ffd9ea', bg2: '#c4eedf' };
+const LW = 7;
+
+// ---------- patterns ----------
+let PAT = {}, BGP1, BGP2;
+function mkPat(w, h, draw) { const c = off(w, h), g = c.getContext('2d'); draw(g); return ctx.createPattern(c, 'repeat'); }
+function buildAssets() {
+  PAT.dots = (col) => mkPat(34, 34, g => { g.fillStyle = col; g.fillRect(0, 0, 34, 34); g.fillStyle = C.ink; g.beginPath(); g.arc(8, 8, 4.5, 0, 7); g.arc(25, 25, 4.5, 0, 7); g.fill(); });
+  PAT.stripe = (col) => mkPat(40, 40, g => { g.fillStyle = col; g.fillRect(0, 0, 40, 40); g.strokeStyle = C.ink; g.lineWidth = 7; for (const o of [-40, 0, 40]) { g.beginPath(); g.moveTo(o, 40); g.lineTo(o + 40, 0); g.stroke(); } });
+  PAT.zig = (col) => mkPat(60, 36, g => { g.fillStyle = col; g.fillRect(0, 0, 60, 36); g.strokeStyle = C.ink; g.lineWidth = 5; g.beginPath(); g.moveTo(0, 26); g.lineTo(15, 10); g.lineTo(30, 26); g.lineTo(45, 10); g.lineTo(60, 26); g.stroke(); });
+  PAT.w = { dotsY: PAT.dots(C.yellow), stripeT: PAT.stripe(C.teal), zigP: PAT.zig(C.pink), dotsC: PAT.dots(C.cream), stripeY: PAT.stripe(C.yellow) };
+  // backgrounds with a subtle grid of dots (pre-rendered)
+  const bg = (col, dot) => { const c = off(W, H), g = c.getContext('2d'); g.fillStyle = col; g.fillRect(0, 0, W, H); g.fillStyle = dot;
+    for (let y = 30; y < H; y += 48) for (let x = 30 + ((y / 48) % 2) * 24; x < W; x += 48) { g.beginPath(); g.arc(x, y, 3.2, 0, 7); g.fill(); } return c; };
+  BGP1 = bg(C.bg1, 'rgba(255,113,206,0.35)'); BGP2 = bg(C.bg2, 'rgba(106,123,180,0.25)');
+}
+
+// ---------- drawing helpers ----------
+function hard(pathFn, fill, sh = C.ink, dx = 12, dy = 12, stroke = true) {
+  ctx.save(); ctx.translate(dx, dy); pathFn(); ctx.fillStyle = sh; ctx.fill(); ctx.restore();
+  pathFn(); ctx.fillStyle = fill; ctx.fill(); if (stroke) { ctx.lineWidth = LW; ctx.strokeStyle = C.ink; ctx.lineJoin = 'round'; ctx.stroke(); }
+}
+function hardText(str, x, y, px, fill, fam = FR, w = 900, sh = C.ink, d = 10, sw = 9) {
+  ctx.font = `${w} ${px}px ${fam}`; ctx.lineJoin = 'round'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = sh; ctx.strokeStyle = sh; ctx.lineWidth = sw; ctx.strokeText(str, x + d, y + d); ctx.fillText(str, x + d, y + d);
+  ctx.strokeStyle = C.ink; ctx.strokeText(str, x, y); ctx.fillStyle = fill; ctx.fillText(str, x, y);
+}
+function squiggle(len, amp, n) { ctx.beginPath(); for (let i = 0; i <= 60; i++) { const u = i / 60; const x = (u - 0.5) * len, y = Math.sin(u * n * Math.PI * 2) * amp; i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } }
+function zigPath(len, amp, n) { ctx.beginPath(); for (let i = 0; i <= n * 2; i++) { const x = (i / (n * 2) - 0.5) * len, y = (i % 2 ? -amp : amp); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } }
+function strokeCol(col, w, shDx = 8) { ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.save(); ctx.translate(shDx, shDx); ctx.strokeStyle = C.ink; ctx.lineWidth = w; ctx.stroke(); ctx.restore(); ctx.strokeStyle = col; ctx.lineWidth = w; ctx.stroke(); }
+function deco(d, t) {
+  const p = seg(t, d.t0, d.t0 + 0.45); if (p <= 0) return; const out = d.out ? seg(t, d.out, d.out + 0.3) : 0; if (out >= 1) return;
+  const s = eBack(p) * (out > 0 ? (out < 0.3 ? 1 + Math.sin(out / 0.3 * Math.PI) * 0.15 : 1 - eIn((out - 0.3) / 0.7)) : 1);
+  const hop = Math.abs(Math.sin(t * 3.2 + d.ph)) * 10, wig = Math.sin(t * 2.4 + d.ph) * 0.12;
+  ctx.save(); ctx.translate(d.x, d.y - hop); ctx.rotate(d.r + wig + (1 - p) * 1.4); ctx.scale(s * d.s, s * d.s);
+  switch (d.k) {
+    case 'squig': squiggle(180, 18, 2.5); strokeCol(d.c, 16); break;
+    case 'zig': zigPath(190, 22, 4); strokeCol(d.c, 14); break;
+    case 'tri': hard(() => { ctx.beginPath(); ctx.moveTo(0, -60); ctx.lineTo(56, 44); ctx.lineTo(-56, 44); ctx.closePath(); }, d.c, C.ink, 9, 9); break;
+    case 'ring': ctx.beginPath(); ctx.arc(0, 0, 52, 0, 7); ctx.save(); ctx.translate(8, 8); ctx.strokeStyle = C.ink; ctx.lineWidth = 22; ctx.stroke(); ctx.restore(); ctx.strokeStyle = d.c; ctx.lineWidth = 22; ctx.stroke(); ctx.lineWidth = 4; ctx.strokeStyle = C.ink; ctx.beginPath(); ctx.arc(0, 0, 63, 0, 7); ctx.stroke(); ctx.beginPath(); ctx.arc(0, 0, 41, 0, 7); ctx.stroke(); break;
+    case 'half': hard(() => { ctx.beginPath(); ctx.arc(0, 20, 70, Math.PI, 0); ctx.closePath(); }, PAT.w.stripeY, C.ink, 9, 9); break;
+    case 'dots': ctx.fillStyle = C.ink; for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { ctx.beginPath(); ctx.arc(-54 + i * 36, -54 + j * 36, 8, 0, 7); ctx.fill(); } break;
+    case 'plus': hard(() => { ctx.beginPath(); ctx.rect(-14, -48, 28, 96); ctx.rect(-48, -14, 96, 28); }, d.c, C.ink, 8, 8, false); break;
+    case 'pill': hard(() => { ctx.beginPath(); ctx.roundRect(-80, -26, 160, 52, 26); }, PAT.w.dotsC, C.ink, 9, 9); break;
+  }
+  ctx.restore();
+}
+const DECO1 = [
+  { k: 'squig', x: 170, y: 140, c: C.teal, r: -0.2 }, { k: 'tri', x: 1080, y: 150, c: C.yellow, r: 0.3 }, { k: 'dots', x: 1790, y: 150, r: 0.2 },
+  { k: 'ring', x: 1170, y: 950, c: C.pink, r: 0 }, { k: 'zig', x: 1720, y: 930, c: C.purple, r: -0.15 }, { k: 'half', x: 150, y: 940, c: C.yellow, r: 0.2 },
+  { k: 'plus', x: 1430, y: 840, c: C.blue, r: 0.3 }, { k: 'pill', x: 420, y: 95, r: -0.12 }, { k: 'squig', x: 1560, y: 110, c: C.neon, r: 0.15 },
+  { k: 'tri', x: 110, y: 540, c: C.teal, r: -0.5 }, { k: 'dots', x: 880, y: 1000, r: -0.3 }, { k: 'zig', x: 1880, y: 560, c: C.yellow, r: 1.4 }
+].map((d, i) => ({ ...d, s: 1, ph: i * 1.3, t0: 0.12 + i * 0.05, out: null }));
+const DECO2 = [
+  { k: 'zig', x: 180, y: 120, c: C.pink, r: 0.1 }, { k: 'ring', x: 1790, y: 170, c: C.yellow, r: 0 }, { k: 'dots', x: 1260, y: 110, r: 0.4 },
+  { k: 'tri', x: 1810, y: 780, c: C.purple, r: 0.4 }, { k: 'squig', x: 150, y: 820, c: C.blue, r: -0.3 }, { k: 'plus', x: 1440, y: 740, c: C.neon, r: 0.2 },
+  { k: 'half', x: 1800, y: 1000, c: C.yellow, r: -0.1 }, { k: 'pill', x: 700, y: 60, r: 0.08 }, { k: 'dots', x: 90, y: 400, r: 0.1 }
+].map((d, i) => ({ ...d, s: 0.9, ph: i * 1.7, t0: 4.55 + i * 0.05, out: [0, 3, 7].includes(i) ? null : 8.55 + i * 0.03 }));
+
+// ---------- the topic wheel ----------
+const WH = { x: 610, y: 575, r: 340 };
+const SEGS = [
+  { w: 'UZAY', f: () => C.pink, tc: C.ink }, { w: 'YEMEK', f: () => PAT.w.dotsY, tc: C.ink, box: true }, { w: 'MÜZİK', f: () => C.purple, tc: C.cream },
+  { w: 'SPOR', f: () => PAT.w.stripeT, tc: C.ink, box: true }, { w: 'TATİL', f: () => C.yellow, tc: C.ink }, { w: 'SANAT', f: () => PAT.w.zigP, tc: C.ink, box: true }];
+const SA = Math.PI / 3, WIN = 2;
+const TH_END = -Math.PI / 2 - (WIN + 0.5) * SA + Math.PI * 2 * 4, TH_START = TH_END - Math.PI * 2 * 3 - 0.9;
+function wheelAngle(t) {
+  const a = seg(t, 0.85, 1.2), sp = seg(t, 1.2, 3.65);
+  let th = TH_START - Math.sin(a * Math.PI / 2) * 0.22 * (1 - sp);   // wind-up anticipation
+  if (sp > 0) th = lerp(TH_START - 0.22, TH_END, eOutQ(sp));
+  const settle = t - 3.65; if (settle > 0) th = TH_END + Math.exp(-settle * 7) * Math.sin(settle * 18) * 0.035;
+  return th;
+}
+function drawWheel(t, s) {
+  const th = wheelAngle(t);
+  ctx.save(); ctx.translate(WH.x, WH.y); ctx.scale(s, s);
+  ctx.fillStyle = C.ink; ctx.beginPath(); ctx.arc(16, 16, WH.r + 10, 0, 7); ctx.fill();
+  ctx.fillStyle = C.cream; ctx.beginPath(); ctx.arc(0, 0, WH.r + 10, 0, 7); ctx.fill(); ctx.lineWidth = LW; ctx.strokeStyle = C.ink; ctx.stroke();
+  const winFlash = t > 3.7 ? Math.max(0, Math.sin((t - 3.7) * 18)) * (1 - seg(t, 3.7, 4.2)) : 0;
+  SEGS.forEach((sg, i) => {
+    const a0 = th + i * SA, a1 = a0 + SA;
+    ctx.save(); ctx.rotate(0); ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, WH.r - 14, a0, a1); ctx.closePath();
+    ctx.fillStyle = sg.f(); ctx.fill(); if (i === WIN && winFlash > 0) { ctx.fillStyle = `rgba(255,255,255,${winFlash * 0.7})`; ctx.fill(); }
+    ctx.lineWidth = LW; ctx.strokeStyle = C.ink; ctx.stroke(); ctx.restore();
+    const am = a0 + SA / 2; ctx.save(); ctx.rotate(am + Math.PI / 2); ctx.translate(0, -WH.r * 0.66);
+    ctx.font = `900 46px ${FR}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    if (sg.box) { const w = ctx.measureText(sg.w).width + 28; ctx.fillStyle = C.cream; ctx.beginPath(); ctx.roundRect(-w / 2, -30, w, 60, 30); ctx.fill(); ctx.lineWidth = 5; ctx.stroke(); }
+    ctx.fillStyle = sg.tc; ctx.fillText(sg.w, 0, 3); ctx.restore();
+  });
+  // rim studs
+  for (let i = 0; i < 24; i++) { const a = i / 24 * Math.PI * 2 + th; ctx.fillStyle = i % 2 ? C.neon : C.yellow; ctx.beginPath(); ctx.arc(Math.cos(a) * (WH.r - 2), Math.sin(a) * (WH.r - 2), 7, 0, 7); ctx.fill(); }
+  // hub
+  hard(() => { ctx.beginPath(); ctx.arc(0, 0, 58, 0, 7); }, C.neon, C.ink, 6, 6);
+  ctx.fillStyle = C.yellow; ctx.beginPath(); ctx.arc(0, 0, 20, 0, 7); ctx.fill(); ctx.lineWidth = 5; ctx.stroke();
+  ctx.restore();
+  // pointer (flapper) — kicks each time a segment border passes under it
+  const rel = (((-Math.PI / 2 - th) % SA) + SA) % SA / SA, kick = (1 - rel) < 0.25 ? (0.25 - (1 - rel)) / 0.25 : 0;
+  ctx.save(); ctx.translate(WH.x, WH.y - (WH.r + 12) * s); ctx.scale(s, s); ctx.rotate(-kick * 0.45 * seg(t, 1.2, 1.4));
+  hard(() => { ctx.beginPath(); ctx.moveTo(-44, -70); ctx.lineTo(44, -70); ctx.lineTo(0, 30); ctx.closePath(); }, C.blue, C.ink, 8, 8);
+  ctx.restore();
+}
+function segBoundaryTimes() { // for sound design: when a border passes the pointer
+  const out = []; let prev = null; for (let t = 1.2; t < 3.8; t += 1 / 240) { const k = Math.floor((-Math.PI / 2 - wheelAngle(t)) / SA); if (prev !== null && k !== prev) out.push(+t.toFixed(3)); prev = k; } return out;
+}
+
+// ---------- confetti burst ----------
+const BURST = Array.from({ length: 34 }, (_, i) => { const a = -Math.PI / 2 + (i / 34 - 0.5) * 2.6 + Math.sin(i * 12.9) * 0.2, v = 700 + (i * 97 % 500);
+  return { vx: Math.cos(a) * v, vy: Math.sin(a) * v, c: [C.pink, C.yellow, C.teal, C.blue, C.neon, C.purple][i % 6], k: i % 3, rs: (i % 5 - 2) * 4 }; });
+function burst(t, t0, x0, y0) {
+  const dt = t - t0; if (dt <= 0 || dt > 1.6) return;
+  for (const b of BURST) { const x = x0 + b.vx * dt, y = y0 + b.vy * dt + 1400 * dt * dt; if (y > H + 40) continue;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(b.rs * dt); ctx.globalAlpha = 1 - seg(dt, 1.2, 1.6); ctx.fillStyle = b.c; ctx.strokeStyle = C.ink; ctx.lineWidth = 4;
+    ctx.beginPath(); if (b.k === 0) ctx.rect(-12, -12, 24, 24); else if (b.k === 1) ctx.arc(0, 0, 12, 0, 7); else { ctx.moveTo(0, -15); ctx.lineTo(14, 11); ctx.lineTo(-14, 11); ctx.closePath(); }
+    ctx.fill(); ctx.stroke(); ctx.restore(); }
+}
+
+// ---------- scene 1 ----------
+function scene1(t) {
+  ctx.drawImage(BGP1, 0, 0);
+  DECO1.forEach(d => deco(d, t));
+  const ws = eElastic(seg(t, 0.2, 1.0));
+  if (ws > 0) drawWheel(t, ws);
+  // title
+  const kp = eBack(seg(t, 0.45, 0.85));
+  if (kp > 0) { ctx.save(); ctx.translate(1420, 400); ctx.rotate(-0.08); ctx.scale(kp, kp); hardText('Konu', 0, 0, 120, C.pink, FS, 400, C.ink, 8, 8); ctx.restore(); }
+  const word = 'ÇEVİR!'; ctx.font = `900 210px ${FR}`; const tw = ctx.measureText(word).width; let x = 1420 - tw / 2;
+  for (let i = 0; i < word.length; i++) {
+    const ch = word[i], w = ctx.measureText(ch).width, t0 = 0.6 + i * 0.07, p = seg(t, t0, t0 + 0.5);
+    if (p > 0) { const y = 640 - (1 - eOut(Math.min(1, p * 1.4))) * 260 + (p < 1 ? Math.sin(p * Math.PI) * 0 : 0);
+      const land = t - (t0 + 0.36), sq = land > 0 ? Math.exp(-land * 10) * Math.sin(land * 30) * 0.18 : 0;
+      const hop = t > 1.5 && t < 3.7 ? Math.max(0, Math.sin((t - 1.5) * 9 - i * 0.7)) * 26 : 0;
+      ctx.save(); ctx.translate(x + w / 2, y - hop); ctx.scale(1 + sq, 1 - sq); ctx.rotate((i % 2 ? 1 : -1) * 0.05);
+      hardText(ch, 0, 0, 210, [C.yellow, C.teal, C.neon, C.yellow, C.teal, C.neon][i], FR, 900, C.blue, 12, 10); ctx.restore(); }
+    x += w - 6;
+  }
+  burst(t, 3.72, WH.x, WH.y - WH.r - 40);
+}
+
+// ---------- transition: triple zigzag band ----------
+function zigBand(t) {
+  const p = seg(t, 3.85, 4.75); if (p <= 0 || p >= 1) return;
+  const cx = lerp(-1700, W + 1700, (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2));
+  ctx.save(); ctx.translate(cx, H / 2); ctx.rotate(-0.22);
+  const band = (x0, x1, col) => { const amp = 34, per = 70, top = -1300, bot = 1300; ctx.beginPath();
+    ctx.moveTo(x0, top); for (let y = top, k = 0; y <= bot; y += per / 2, k++) ctx.lineTo(x0 + (k % 2 ? amp : -amp), y);
+    for (let y = bot, k = 0; y >= top; y -= per / 2, k++) ctx.lineTo(x1 + (k % 2 ? amp : -amp), y); ctx.closePath();
+    ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 9; ctx.strokeStyle = C.ink; ctx.lineJoin = 'miter'; ctx.stroke(); };
+  band(-1250, -1000, C.teal); band(-1000, 1000, PAT.w.dotsY); band(1000, 1250, C.neon);
+  // a squiggle riding on the band
+  ctx.save(); ctx.rotate(Math.PI / 2); squiggle(1400, 40, 5); strokeCol(C.pink, 30, 10); ctx.restore();
+  ctx.restore();
+}
+
+// ---------- scene 2 ----------
+function scene2(t) {
+  ctx.drawImage(BGP2, 0, 0);
+  DECO2.forEach(d => deco(d, t));
+  const outS = k => { const o = seg(t, k, k + 0.35); return o <= 0 ? 1 : o < 0.3 ? 1 + Math.sin(o / 0.3 * Math.PI) * 0.12 : 1 - eIn((o - 0.3) / 0.7); };
+  // speech bubble
+  const bp = seg(t, 4.35, 5.0);
+  if (bp > 0) { const s = eElastic(bp) * outS(8.62); if (s > 0.001) {
+    ctx.save(); ctx.translate(710, 470); ctx.rotate(-0.04 + Math.sin(t * 2) * 0.012); ctx.scale(s, s);
+    hard(() => { ctx.beginPath(); ctx.roundRect(-470, -220, 940, 420, 60); ctx.moveTo(-300, 190); ctx.lineTo(-380, 330); ctx.lineTo(-180, 196); ctx.closePath(); }, C.cream, C.neon, 22, 22);
+    const kp = eBack(seg(t, 4.8, 5.1)); if (kp > 0) { ctx.save(); ctx.translate(-290, -125); ctx.rotate(-0.1); ctx.scale(kp, kp); hardText('Konu:', 0, 0, 84, C.purple, FS, 400, C.ink, 6, 7); ctx.restore(); }
+    // MÜZİK letters drop in
+    const word = 'MÜZİK'; ctx.font = `900 200px ${FR}`; const tw = ctx.measureText(word).width; let x = -tw / 2 + 30;
+    // yellow highlighter squiggle under the word
+    const hp = seg(t, 5.55, 5.9); if (hp > 0) { ctx.save(); ctx.translate(30, 162); ctx.beginPath(); for (let i = 0; i <= 60 * hp; i++) { const u = i / 60; const X = (u - 0.5) * 640, Y = Math.sin(u * 5 * Math.PI) * 14; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); } strokeCol(C.yellow, 22, 6); ctx.restore(); }
+    for (let i = 0; i < word.length; i++) { const ch = word[i], w = ctx.measureText(ch).width, t0 = 5.0 + i * 0.07, p = seg(t, t0, t0 + 0.35);
+      if (p > 0) { const land = t - t0 - 0.35, sq = land > 0 ? Math.exp(-land * 10) * Math.sin(land * 32) * 0.2 : 0;
+        ctx.save(); ctx.translate(x + w / 2, 128 - (1 - p * p) * 300); ctx.scale(1 + sq, 1 - sq); ctx.rotate([-0.06, 0.05, -0.03, 0.06, -0.05][i]);
+        hardText(ch, 0, 0, 200, C.ink, FR, 900, C.teal, 10, 1); ctx.restore(); }
+      x += w; }
+    ctx.restore(); } }
+  // starburst timer
+  const tp = seg(t, 5.25, 5.8);
+  if (tp > 0) { const s = eBack(tp, 3) * outS(8.5); if (s > 0.001) {
+    ctx.save(); ctx.translate(1520, 420); ctx.scale(s, s); ctx.rotate((1 - tp) * -2 + Math.floor(t * 4) * 0.06);
+    hard(() => { ctx.beginPath(); for (let i = 0; i < 40; i++) { const a = i / 40 * Math.PI * 2, r = i % 2 ? 190 : 225; i ? ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r) : ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r); } ctx.closePath(); }, C.yellow, C.purple, 14, 14);
+    ctx.rotate(-((1 - tp) * -2 + Math.floor(t * 4) * 0.06));
+    const sec = 60 - clamp(Math.floor((t - 6.6) / 0.5), 0, 3);
+    hardText(String(sec), 0, 40, 170, C.neon, FR, 900, C.ink, 8, 9);
+    ctx.font = `800 44px ${FR}`; ctx.fillStyle = C.ink; ctx.textAlign = 'center'; ctx.fillText('SANİYE', 0, 105);
+    ctx.restore(); } }
+  // KONUŞ! — trampoline letters
+  const word = 'KONUŞ!'; ctx.font = `900 190px ${FR}`; const tw = ctx.measureText(word).width + 5 * 20; let x = 960 - tw / 2;
+  const cols = [C.pink, C.teal, C.yellow, C.purple, C.neon, C.blue];
+  for (let i = 0; i < word.length; i++) {
+    const ch = word[i], w = ctx.measureText(ch).width, t0 = 5.85 + i * 0.09, p = seg(t, t0, t0 + 0.5);
+    if (p > 0) { const s = outS(8.4 + i * 0.035); if (s > 0.001) {
+      const ph = (t - t0) * 7.5 - i * 0.9, jump = Math.max(0, Math.sin(ph)), ground = Math.max(0, -Math.sin(ph));
+      const y = 975 - (1 - eBack(p, 3)) * -400 * 0 - (p < 1 ? (1 - eOut(p)) * -380 : 0) - (p >= 1 ? jump * 70 : 0);
+      const sq = p >= 1 ? ground * 0.16 - jump * 0.06 : 0;
+      ctx.save(); ctx.translate(x + w / 2, y); ctx.scale((1 + sq) * s, (1 - sq) * s); ctx.rotate(Math.sin(ph) * 0.07);
+      hardText(ch, 0, 0, 190, cols[i], FR, 900, C.ink, 11, 10); ctx.restore(); } }
+    x += w + 20;
+  }
+}
+
+function frame(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  if (t < 4.3) scene1(t); else scene2(t);
+  zigBand(t);
+  const fade = Math.max(1 - seg(t, 0, 0.2), seg(t, 9.25, 9.5));
+  if (fade > 0) { ctx.globalAlpha = fade; ctx.fillStyle = t < 1 ? C.bg1 : C.bg2; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+window.draw = function (job) { frame(job.t); return cv.toDataURL('image/jpeg', job.q || 0.92).split(',')[1]; };
+window.segTimes = () => segBoundaryTimes();
+window.ready = document.fonts.ready.then(() => Promise.all([
+  document.fonts.load(`900 100px 'Rubik'`, 'ÇEVİR! MÜZİK KONUŞ! UZAY YEMEK SPOR TATİL SANAT 60 59'),
+  document.fonts.load(`800 40px 'Rubik'`, 'SANİYE'), document.fonts.load(`400 80px 'Shrikhand'`, 'Konu:')])).then(buildAssets);
+</script></body></html>

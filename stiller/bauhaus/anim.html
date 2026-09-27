@@ -1,0 +1,208 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style id="fonts">
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400 900;
+  font-stretch: 62% 125%;
+  font-display: block;
+  src: url(fonts/archivo_v25_k3kQo8UDI_1M0wlSfdfoLmvDIaK18A.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 400 900;
+  font-stretch: 62% 125%;
+  font-display: block;
+  src: url(fonts/archivo_v25_k3kQo8UDI_1M0wlSfdnoLmvDIaI.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<style>html,body{margin:0;background:#eee8dc}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// Swiss / Bauhaus: ızgara üzerinde üç temel form = doğaçlamanın üç adımı (DÜŞÜN · KUR · KONUŞ) → 60 saniyelik mekanik geri sayım.
+const W = 1920, H = 1080, cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const DUR = 9.5, FF = "'Archivo', sans-serif";
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const eExpoOut = x => x >= 1 ? 1 : 1 - Math.pow(2, -10 * x);
+const eExpoIn = x => x <= 0 ? 0 : Math.pow(2, 10 * x - 10);
+const eExpoInOut = x => x <= 0 ? 0 : x >= 1 ? 1 : x < .5 ? Math.pow(2, 20 * x - 10) / 2 : (2 - Math.pow(2, -20 * x + 10)) / 2;
+const eOut = x => 1 - Math.pow(1 - x, 3);
+const eBackS = x => { const s = 0.9, c = s + 1; return 1 + c * Math.pow(x - 1, 3) + s * Math.pow(x - 1, 2); }; // restrained overshoot
+function off(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+const K = { paper: '#eee8dc', red: '#d02020', blue: '#1040c0', yellow: '#f0c020', ink: '#121212' };
+function font(w, px, stretch = 'normal', ls = 0) { ctx.font = `${w} ${px}px ${FF}`; ctx.fontStretch = stretch; ctx.letterSpacing = ls + 'px'; }
+
+let GRAIN;
+function buildGrain() {
+  GRAIN = off(W, H); const g = GRAIN.getContext('2d'); const id = g.createImageData(W, H); let s = 12345;
+  for (let i = 0; i < id.data.length; i += 4) { s = (s * 16807) % 2147483647; const v = s / 2147483647; const n = v < 0.5 ? 0 : 255;
+    id.data[i] = id.data[i + 1] = id.data[i + 2] = n; id.data[i + 3] = Math.abs(v - 0.5) * 34; }
+  g.putImageData(id, 0, 0);
+}
+
+// ---------- grid ----------
+const M = 96, COLS = 12, GUT = 24, CW = (W - 2 * M - (COLS - 1) * GUT) / COLS;
+const colX = i => M + i * (CW + GUT);
+function grid(t, alpha) {
+  if (alpha <= 0) return;
+  ctx.save(); ctx.strokeStyle = `rgba(18,18,18,${0.11 * alpha})`; ctx.lineWidth = 1.5;
+  for (let i = 0; i <= COLS; i++) { const p = eExpoOut(seg(t, 0.05 + i * 0.025, 0.65 + i * 0.025)); if (p <= 0) continue;
+    for (const x of i < COLS ? [colX(i)] : [W - M]) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H * p); ctx.stroke(); }
+    if (i > 0 && i < COLS) { const x = colX(i) - GUT; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H * p); ctx.stroke(); } }
+  for (const [k, y] of [[0, M], [1, 330], [2, 780], [3, H - M]].map(([k, y]) => [k, y])) { const p = eExpoOut(seg(t, 0.15 + k * 0.05, 0.8 + k * 0.05));
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W * p, y); ctx.stroke(); }
+  ctx.restore();
+}
+
+// ---------- scene 1 : poster ----------
+const ROW = 612, BASE = 780;
+const SH = { c: { x: colX(1) + (CW * 3 + GUT * 2) / 2, r: 150 }, s: { x: colX(5) + (CW * 2 + GUT) / 2 + (CW + GUT) / 2, a: 290 }, tr: { x: colX(9) + (CW * 3 + GUT * 2) / 2, side: 340 } };
+function maskedLetters(str, x, y, px, stretch, t0, t, col, stag = 0.035, ls = 0) {
+  font(900, px, stretch, ls); let cx = x;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, y - px * 0.95, W, px * 1.2); ctx.clip();
+  ctx.fillStyle = col; ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  for (let i = 0; i < str.length; i++) { const ch = str[i], w = ctx.measureText(ch).width;
+    const p = eExpoOut(seg(t, t0 + i * stag, t0 + i * stag + 0.55)); if (p > 0) ctx.fillText(ch, cx, y + (1 - p) * px * 1.1); cx += w + ls; }
+  ctx.restore(); return cx - x;
+}
+function circleShape(x, y, r, rot, col = K.red) {
+  ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+  ctx.fillStyle = K.ink; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, r, rot, rot + Math.PI / 2); ctx.closePath(); ctx.fill();
+}
+function squareShape(x, y, a, rot) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.fillStyle = K.blue; ctx.fillRect(-a / 2, -a / 2, a, a);
+  ctx.fillStyle = K.yellow; ctx.beginPath(); ctx.arc(-a / 2 + a * 0.28, -a / 2 + a * 0.28, a * 0.16, 0, 7); ctx.fill(); ctx.restore();
+}
+function triShape(x, cyC, side, rot) { // equilateral, rotation about centroid
+  const h = side * Math.sqrt(3) / 2; ctx.save(); ctx.translate(x, cyC); ctx.rotate(rot);
+  ctx.fillStyle = K.yellow; ctx.beginPath(); ctx.moveTo(0, -h * 2 / 3); ctx.lineTo(side / 2, h / 3); ctx.lineTo(-side / 2, h / 3); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = K.ink; ctx.beginPath(); ctx.moveTo(0, -h * 2 / 3); ctx.lineTo(side / 2, h / 3); ctx.lineTo(0, h / 3); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function poster(t) {
+  // headline
+  maskedLetters('DOĞAÇLA.', M - 6, 292, 212, 'expanded', 0.55, t, K.ink, 0.045, -6);
+  // side note, top right
+  const sn = eExpoOut(seg(t, 1.5, 2.1));
+  if (sn > 0) { font(700, 26, 'normal', 2); ctx.fillStyle = K.ink; ctx.textAlign = 'right'; ctx.globalAlpha = sn;
+    ['HAZIRLIKSIZ', 'KONUŞMA', 'PRATİĞİ'].forEach((l, i) => ctx.fillText(l, W - M, 150 + i * 34 + (1 - sn) * 20)); ctx.globalAlpha = 1; ctx.textAlign = 'left';
+    ctx.fillStyle = K.red; ctx.fillRect(W - M - 26, 250, 26 * sn, 26); }
+  // baseline rule
+  const bl = eExpoOut(seg(t, 0.45, 1.1)); ctx.fillStyle = K.ink; ctx.fillRect(M, BASE, (W - 2 * M) * bl, 8);
+  // circle rolls in along the baseline
+  const cp = seg(t, 0.75, 1.75), cx = lerp(-220, SH.c.x, eBackS(cp)); const act1 = eExpoInOut(seg(t, 2.85, 3.15));
+  if (cp > 0) circleShape(cx, BASE - SH.c.r, SH.c.r, (cx - SH.c.x) / SH.c.r - Math.PI * 0.75 + act1 * Math.PI / 2);
+  // square drops and rotates into place
+  const sp = seg(t, 1.0, 1.7); const act2 = eExpoInOut(seg(t, 3.25, 3.55));
+  if (sp > 0) { const land = t - 1.7, bounce = land > 0 ? Math.exp(-land * 14) * Math.sin(land * 40) * 8 : 0;
+    squareShape(SH.s.x, lerp(-300, BASE - SH.s.a / 2, eExpoIn(sp) * 0 + sp * sp) - bounce, SH.s.a, (1 - sp) * Math.PI / 2 + act2 * Math.PI / 2); }
+  // triangle rises out of the baseline mask
+  const tp = eExpoOut(seg(t, 1.3, 2.0)); const act3 = eExpoInOut(seg(t, 3.65, 3.95));
+  if (tp > 0) { const h = SH.tr.side * Math.sqrt(3) / 2; ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, BASE); ctx.clip();
+    triShape(SH.tr.x, BASE - h / 3 + (1 - tp) * h * 1.05, SH.tr.side, act3 * Math.PI * 2 / 3); ctx.restore(); }
+  // labels
+  const labs = [[SH.c.x - 150, '01', 'DÜŞÜN'], [SH.s.x - 145, '02', 'KUR'], [SH.tr.x - 170, '03', 'KONUŞ']];
+  labs.forEach(([x, n, w], i) => { const t0 = 1.85 + i * 0.12; font(700, 24, 'normal', 3); const a = seg(t, t0, t0 + 0.2);
+    ctx.globalAlpha = a; ctx.fillStyle = K.ink; ctx.fillText(n, x, 850); ctx.globalAlpha = 1;
+    maskedLetters(w, x, 935, 72, 'expanded', t0 + 0.05, t, K.ink, 0.03, -1); });
+  // active-step indicator (mechanical, stepped)
+  const step = t < 3.2 ? 0 : t < 3.6 ? 1 : 2, ip = seg(t, 2.6, 2.8);
+  if (ip > 0) { const targets = labs.map(l => l[0]); const moves = [[3.2, 0, 1], [3.6, 1, 2]]; let ix = targets[0];
+    for (const [tm, a, b] of moves) { const k = eExpoInOut(seg(t, tm - 0.12, tm + 0.08)); if (t > tm - 0.12) ix = lerp(targets[a], targets[b], k); }
+    ctx.fillStyle = K.red; ctx.fillRect(ix, 960, 60 * eExpoOut(ip), 10); }
+}
+
+// ---------- scene 2 : the 60-second clock ----------
+const CLK = { x: 1350, y: 540, r: 330 };
+function clockScene(t) {
+  ctx.fillStyle = K.red; ctx.fillRect(0, 0, W, H);
+  // grid remains, printed faintly on red
+  ctx.save(); ctx.strokeStyle = 'rgba(18,18,18,0.14)'; ctx.lineWidth = 1.5;
+  for (let i = 0; i < COLS; i++) { ctx.beginPath(); ctx.moveTo(colX(i), 0); ctx.lineTo(colX(i), H); ctx.stroke(); }
+  ctx.restore();
+  const steps = clamp(Math.floor((t - 5.45) / 0.2) + 1, 0, 12); // 0..12 → 60..0
+  const val = 60 - steps * 5;
+  // cream disc + stepped black sector
+  const cin = eExpoOut(seg(t, 4.75, 5.35));
+  if (cin > 0) {
+    ctx.fillStyle = K.paper; ctx.beginPath(); ctx.arc(CLK.x, CLK.y, CLK.r * cin, 0, 7); ctx.fill();
+    const lastStep = 5.45 + (steps - 1) * 0.2, sweep = steps > 0 ? (steps - 1 + eExpoOut(seg(t, lastStep, lastStep + 0.12))) / 12 : 0;
+    if (sweep > 0) { ctx.fillStyle = K.ink; ctx.beginPath(); ctx.moveTo(CLK.x, CLK.y); ctx.arc(CLK.x, CLK.y, CLK.r * cin, -Math.PI / 2, -Math.PI / 2 + sweep * Math.PI * 2); ctx.closePath(); ctx.fill(); }
+    // tick marks
+    ctx.save(); ctx.translate(CLK.x, CLK.y); ctx.strokeStyle = K.ink; ctx.lineWidth = 6;
+    for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2 - Math.PI / 2, r0 = CLK.r * cin + 22, r1 = r0 + (i % 3 === 0 ? 44 : 22);
+      const pk = seg(t, 5.0 + i * 0.02, 5.2 + i * 0.02); if (pk <= 0) continue;
+      ctx.beginPath(); ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0); ctx.lineTo(Math.cos(a) * lerp(r0, r1, eExpoOut(pk)), Math.sin(a) * lerp(r0, r1, eExpoOut(pk))); ctx.stroke(); }
+    ctx.restore();
+    // yellow triangle marker at 12 o'clock, blue square hub
+    const mk = eExpoOut(seg(t, 5.15, 5.5));
+    if (mk > 0) { ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, CLK.y - CLK.r - 70); ctx.clip(); triShape(CLK.x, CLK.y - CLK.r - 70 - 40 + (1 - mk) * 110, 92, Math.PI); ctx.restore();
+      ctx.fillStyle = K.blue; const hs = 64 * mk; ctx.fillRect(CLK.x - hs / 2, CLK.y - hs / 2, hs, hs); }
+  }
+  // numerals, each step slides up through a mask
+  const nIn = seg(t, 4.85, 5.4);
+  if (nIn > 0) {
+    font(900, 520, 'semi-condensed', -24); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    const y0 = 800; ctx.save(); ctx.beginPath(); ctx.rect(M - 20, y0 - 420, 820, 440); ctx.clip();
+    const cur = String(val).padStart(2, '0'), prev = String(Math.min(60, val + 5)).padStart(2, '0');
+    const lastStep = 5.45 + (steps - 1) * 0.2, k = steps > 0 ? eExpoOut(seg(t, lastStep, lastStep + 0.14)) : 1;
+    ctx.fillStyle = K.paper;
+    if (steps === 0) ctx.fillText('60', M - 14, y0 + (1 - eExpoOut(nIn)) * 440);
+    else { ctx.fillText(prev, M - 14, y0 - k * 440); ctx.fillText(cur, M - 14, y0 + (1 - k) * 440); }
+    ctx.restore();
+  }
+  maskedLetters('SANİYE', M, 930, 96, 'expanded', 5.1, t, K.ink, 0.035, 2);
+  font(700, 24, 'normal', 3); ctx.fillStyle = K.ink; ctx.globalAlpha = seg(t, 5.2, 5.4); ctx.fillText('04 — SÜRE', M, 150); ctx.globalAlpha = 1;
+}
+
+// ---------- end card ----------
+function endCard(t) {
+  ctx.fillStyle = K.paper; ctx.fillRect(0, 0, W, H);
+  const a = eExpoOut(seg(t, 8.8, 9.1)), s = 96;
+  const xs = [W / 2 - 170, W / 2, W / 2 + 170], y = 490;
+  if (a > 0) {
+    ctx.save(); ctx.globalAlpha = 1;
+    circleShape(xs[0], y + (1 - a) * 40, s / 2 * a, -Math.PI * 0.75);
+    squareShape(xs[1], y + (1 - seg(t, 8.8, 9.15)) * 40, s * eExpoOut(seg(t, 8.8, 9.15)), 0);
+    const ta = eExpoOut(seg(t, 8.85, 9.2)); triShape(xs[2], y + 8 + (1 - ta) * 40, s * 1.1 * ta, 0);
+    ctx.restore();
+  }
+  font(800, 40, 'expanded', 10); ctx.textAlign = 'center'; ctx.fillStyle = K.ink; ctx.globalAlpha = seg(t, 8.95, 9.15);
+  ctx.fillText('DÜŞÜN · KUR · KONUŞ', W / 2 + 5, 650); ctx.globalAlpha = 1; ctx.textAlign = 'left';
+}
+
+function frame(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  // scene 1
+  if (t < 4.85) {
+    ctx.fillStyle = K.paper; ctx.fillRect(0, 0, W, H); grid(t, 1); poster(t);
+    // circle wipe: the red circle swallows the poster
+    const w = seg(t, 4.05, 4.8);
+    if (w > 0) { const ant = t < 4.18 ? 1 - Math.sin(seg(t, 4.05, 4.18) * Math.PI) * 0.06 : 1;
+      const r = SH.c.r * ant + eExpoIn(seg(t, 4.18, 4.8)) * 2300; ctx.fillStyle = K.red; ctx.beginPath(); ctx.arc(SH.c.x, BASE - SH.c.r, r, 0, 7); ctx.fill(); }
+  } else if (t < 8.8) {
+    clockScene(t);
+  }
+  // outro: four paper columns rise over the red, then the end card
+  const o0 = 8.2;
+  if (t >= o0) {
+    if (t < 8.8) { for (let i = 0; i < 4; i++) { const p = eExpoInOut(seg(t, o0 + i * 0.07, o0 + i * 0.07 + 0.4)); if (p <= 0) continue; const y = H * (1 - p) - 16 * (1 - p);
+      ctx.fillStyle = K.paper; ctx.fillRect(i * W / 4, y, W / 4 + 1, H - y); ctx.fillStyle = [K.ink, K.blue, K.ink, K.yellow][i]; ctx.fillRect(i * W / 4, y - 16, W / 4 + 1, 16 * (1 - p) + (p < 1 ? 0 : 0)); } }
+    else endCard(t);
+  }
+  // print grain over everything
+  ctx.globalAlpha = 0.55; ctx.drawImage(GRAIN, 0, 0); ctx.globalAlpha = 1;
+  const fade = Math.max(1 - seg(t, 0, 0.25), seg(t, 9.3, 9.5) * 0.85);
+  if (fade > 0) { ctx.globalAlpha = fade; ctx.fillStyle = K.paper; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+window.draw = function (job) { frame(job.t); return cv.toDataURL('image/jpeg', job.q || 0.92).split(',')[1]; };
+window.ready = document.fonts.ready.then(() => Promise.all([
+  document.fonts.load(`900 100px 'Archivo'`, 'DOĞAÇLA. DÜŞÜN KUR KONUŞ SANİYE 0123456789'),
+  document.fonts.load(`700 30px 'Archivo'`, 'HAZIRLIKSIZ KONUŞMA PRATİĞİ — SÜRE'),
+  document.fonts.load(`800 30px 'Archivo'`, 'DÜŞÜN · KUR · KONUŞ')])).then(buildGrain);
+</script></body></html>

@@ -1,0 +1,501 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>html,body{margin:0;background:#000}canvas{display:block}</style>
+</head><body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// ── piksel · 16-bit platform oyunu ─────────────────────────────────────
+// 320×180 düşük çözünürlükte çizilir, en yakın komşu ile 6× büyütülür (keskin pikseller).
+// Başlık ekranı → SNES mozaik geçişi → Bölüm 1-1: mikrofon "Miko" koşar, S-Ö-Z harf paralarını toplar,
+// "?" bloğuna kafa atar, "Susku"yu ezer → "KELİME TAMAM!" (palet döngüsü) → daire kapanışı.
+const W = 1920, H = 1080, LW = 320, LH = 180, K = 6, DUR = 10.0;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.imageSmoothingEnabled = false; return c; };
+const LO = mk(LW, LH), L = LO.getContext('2d');
+const MOS = mk(LW, LH);
+const P = { // sınırlı palet (18 renk)
+  ink: '#0d0b1a', navy: '#1f2350', blue: '#2e4a9e', sky: '#4f8fe0', sky2: '#8fd0ff', cloud: '#e8f6ff',
+  dgreen: '#2b6b3a', green: '#45a347', lgreen: '#9be05a', ddirt: '#6b3e26', dirt: '#a8683a', sand: '#e0a060',
+  gold: '#ffd23f', orange: '#ff7a2f', red: '#d7263d', silver: '#b9c2d0', gray: '#6d7891', white: '#ffffff', purple: '#5b3f8c'
+};
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const R = Math.round;
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+const px = (x, cx, cy, col) => { x.fillStyle = col; x.fillRect(cx | 0, cy | 0, 1, 1); };
+
+// ── piksel yazı: el çizimi 5×7 kalın bitmap font (Türkçe büyük harfler tam boy + üstte nokta/altta çengel) ──
+const G = {
+  A: '.###.|#...#|#...#|#####|#...#|#...#|#...#', B: '####.|#...#|#...#|####.|#...#|#...#|####.', C: '.###.|#...#|#....|#....|#....|#...#|.###.',
+  E: '#####|#....|#....|####.|#....|#....|#####', I: '.###.|..#..|..#..|..#..|..#..|..#..|.###.', K: '#...#|#..#.|#.#..|##...|#.#..|#..#.|#...#',
+  L: '#....|#....|#....|#....|#....|#....|#####', M: '##...##|###.###|##.#.##|##...##|##...##|##...##|##...##', N: '#...#|##..#|#.#.#|#..##|#...#|#...#|#...#',
+  O: '.###.|#...#|#...#|#...#|#...#|#...#|.###.', P: '####.|#...#|#...#|####.|#....|#....|#....', R: '####.|#...#|#...#|####.|#.#..|#..#.|#...#',
+  S: '.###.|#...#|#....|.###.|....#|#...#|.###.', T: '#####|..#..|..#..|..#..|..#..|..#..|..#..', U: '#...#|#...#|#...#|#...#|#...#|#...#|.###.',
+  Z: '#####|....#|...#.|..#..|.#...|#....|#####', '0': '.###.|#...#|#..##|#.#.#|##..#|#...#|.###.', '1': '..#..|.##..|..#..|..#..|..#..|..#..|.###.',
+  '2': '.###.|#...#|....#|..##.|.#...|#....|#####', '3': '####.|....#|....#|.###.|....#|....#|####.', '4': '...#.|..##.|.#.#.|#..#.|#####|...#.|...#.',
+  '5': '#####|#....|####.|....#|....#|#...#|.###.', '6': '.###.|#....|#....|####.|#...#|#...#|.###.', '7': '#####|....#|...#.|..#..|.#...|.#...|.#...',
+  '8': '.###.|#...#|#...#|.###.|#...#|#...#|.###.', '9': '.###.|#...#|#...#|.####|....#|....#|.###.', '-': '.....|.....|.....|####.|.....|.....|.....',
+  '+': '.....|..#..|..#..|#####|..#..|..#..|.....', '!': '.##..|.##..|.##..|.##..|.##..|.....|.##..'
+};
+const ACC = { 'İ': ['I', [[2, -2], [3, -2]]], 'Ö': ['O', [[0, -2], [1, -2], [4, -2], [5, -2]]], 'Ü': ['U', [[0, -2], [1, -2], [4, -2], [5, -2]]], 'Ş': ['S', [[2, 7], [3, 7], [1, 8], [2, 8]]], 'Ç': ['C', [[2, 7], [3, 7], [1, 8], [2, 8]]] };
+const TXT = {};
+function textBmp(str, size, colFn, outline = P.ink, shadow = true) {
+  const key = str + size + outline + shadow + colFn.name;
+  if (TXT[key]) return TXT[key];
+  const s = size >= 16 ? 2 : 1, chars = [...str];
+  const adv = ch => ch === ' ' ? 4 : (G[ch] && G[ch].indexOf('|') > 5) ? 8 : 7;
+  const gw = chars.reduce((a, ch) => a + adv(ch), 0) - 1, gh = 11; // 2 satır üst işaret + 7 gövde + 2 alt çengel
+  const w = gw * s + 6, h = gh * s + 6, top = 3 + 2 * s;
+  const mask = new Uint8Array(w * h), set = (i, j) => { for (let b = 0; b < s; b++) for (let a = 0; a < s; a++) { const X = 3 + i * s + a, Y = top + j * s + b; if (X >= 0 && Y >= 0 && X < w && Y < h) mask[Y * w + X] = 1; } };
+  let cx = 0;
+  chars.forEach(ch => {
+    const acc = ACC[ch], rows = G[acc ? acc[0] : ch];
+    if (rows) {
+      const wide = rows.indexOf('|') > 5;
+      rows.split('|').forEach((row, j) => [...row].forEach((c, i) => { if (c === '#') { set(cx + i, j); if (!wide) set(cx + i + 1, j); } }));
+      if (acc) acc[1].forEach(([i, j]) => set(cx + i, j));
+    }
+    cx += adv(ch);
+  });
+  const on = (i, j) => i >= 0 && j >= 0 && i < w && j < h && mask[j * w + i];
+  const o = mk(w + 2, h + 2), y = o.getContext('2d');
+  if (outline) for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    if (on(i, j)) continue; let near = false;
+    for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) if (on(i + di, j + dj)) near = true;
+    if (near) px(y, i + 1, j + 1, outline);
+  }
+  if (shadow) for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (on(i, j) && !on(i + 1, j + 1)) px(y, i + 2, j + 2, P.ink);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (on(i, j)) px(y, i + 1, j + 1, colFn(j - top, 7 * s));
+  return (TXT[key] = { c: o, w: gw * s, top: top + 1, left: 4 });
+}
+function drawText(x, str, size, cx, top, colFn, align = 'center', outline = P.ink, shadow = true) {
+  const b = textBmp(str, size, colFn, outline, shadow);
+  const lx = align === 'center' ? R(cx - b.w / 2) : align === 'right' ? R(cx - b.w) : R(cx);
+  x.drawImage(b.c, lx - b.left, R(top) - b.top);
+  return b.w;
+}
+const cWhite = function white() { return P.white; };
+const cGold = function gold(j, s) { const u = j / s; return u < 0.35 ? P.gold : u < 0.7 ? P.orange : P.red; };
+const cGray = function gray() { return P.silver; };
+const cCycle = []; // palet döngüsü: 6 kayık gradyan
+for (let k = 0; k < 6; k++) { const pal = [P.gold, P.orange, P.red, P.white, P.sky2, P.lgreen]; cCycle.push({ [`cyc${k}`]: function (j) { return pal[(Math.floor(j / 2) + k) % pal.length]; } }[`cyc${k}`]); }
+
+// ── sprite üreticileri ──
+function genMic({ sx = 1, sy = 1, legs = 0, air = false, happy = false }) {
+  const c = mk(28, 40), x = c.getContext('2d'), cx = 14, bottom = 39;
+  const feetTop = bottom - 1, hl = R(8 * sy), handleTop = feetTop - hl, bandTop = handleTop - 2;
+  const rx = 8.2 * sx, ry = 8.2 * sy, hcx = cx, hcy = bandTop - ry + 0.3;
+  // ayaklar
+  const F = air ? [[-5, -1], [2, 0]] : [[[-5, 0], [2, -1]], [[-2, 0], [0, -1]], [[-4, -1], [3, 0]], [[-1, -1], [-2, 0]]][legs];
+  F.forEach(([fx, fy]) => {
+    for (let i = 0; i < 4; i++) { px(x, cx + fx + i, feetTop + fy, P.red); px(x, cx + fx + i, feetTop + fy + 1, P.ink); }
+    px(x, cx + fx + 1, feetTop + fy - 1, P.ink);
+  });
+  // sap
+  for (let r = 0; r < hl; r++) {
+    const w = R(9 - r * 3 / Math.max(1, hl)), x0 = cx - Math.ceil(w / 2);
+    for (let i = 0; i < w; i++) px(x, x0 + i, handleTop + r, i === 0 ? P.ink : i === 1 ? P.silver : i === w - 1 ? P.ink : P.gray);
+  }
+  // kırmızı bilezik
+  for (let r = 0; r < 2; r++) for (let i = -6; i <= 5; i++) px(x, cx + i, bandTop + r, (i === -6 || i === 5) ? P.ink : r ? P.red : P.orange);
+  // baş (elips), üst yarı düz gümüş, alt yarı ızgara
+  const inside = (i, j) => { const dx = (i + 0.5 - hcx) / rx, dy = (j + 0.5 - hcy) / ry; return dx * dx + dy * dy <= 1; };
+  for (let j = 0; j < 40; j++) for (let i = 0; i < 28; i++) {
+    if (!inside(i, j)) continue;
+    const edge = !inside(i - 1, j) || !inside(i + 1, j) || !inside(i, j - 1) || !inside(i, j + 1);
+    let col = P.silver;
+    if (edge) col = P.ink;
+    else if (j + 0.5 > hcy + 0.5) col = ((i + j) % 2) ? P.gray : P.silver;
+    else if (i + 0.5 > hcx + rx * 0.55) col = P.gray;
+    px(x, i, j, col);
+  }
+  px(x, R(hcx - rx * 0.5), R(hcy - ry * 0.55), P.white); px(x, R(hcx - rx * 0.5) - 1, R(hcy - ry * 0.3), P.white); px(x, R(hcx - rx * 0.5), R(hcy - ry * 0.3), P.white);
+  // gözler (sağa bakar)
+  const ey = R(hcy - 2);
+  [[R(hcx), 0], [R(hcx) + 4, 0]].forEach(([ex]) => {
+    if (happy) { px(x, ex, ey + 1, P.ink); px(x, ex + 1, ey, P.ink); px(x, ex + 2, ey + 1, P.ink); return; }
+    px(x, ex, ey - 1, P.white); px(x, ex + 1, ey - 1, P.white); px(x, ex, ey, P.white); px(x, ex, ey + 1, P.white); px(x, ex + 1, ey, P.ink); px(x, ex + 1, ey + 1, P.ink); px(x, ex, ey + 2, P.ink); px(x, ex + 1, ey + 2, P.ink);
+  });
+  return c;
+}
+function genCoin(wi, letter) {
+  const c = mk(16, 16), x = c.getContext('2d'), rx = wi / 2, ry = 7, cx = 8, cy = 8;
+  const inside = (i, j) => { const dx = (i + 0.5 - cx) / rx, dy = (j + 0.5 - cy) / ry; return dx * dx + dy * dy <= 1; };
+  for (let j = 0; j < 16; j++) for (let i = 0; i < 16; i++) {
+    if (!inside(i, j)) continue;
+    const edge = !inside(i - 1, j) || !inside(i + 1, j) || !inside(i, j - 1) || !inside(i, j + 1);
+    const rim = wi > 5 && (!inside(i - 2, j) || !inside(i + 2, j));
+    px(x, i, j, edge ? P.ink : rim ? P.orange : (i < cx - 1 && j < cy - 1 ? P.white : P.gold));
+  }
+  if (wi >= 11 && letter) { const b = textBmp(letter, 8, function coinL() { return P.orange; }, null, false); x.drawImage(b.c, R(cx - b.w / 2) - b.left, 5 - b.top); }
+  return c;
+}
+function genEnemy(frame, flat = false) {
+  const c = mk(24, 18), x = c.getContext('2d');
+  const w = flat ? 21 : frame ? 19 : 18, h = flat ? 6 : frame ? 14 : 15, cx = 12, bottom = 17;
+  const inside = (i, j) => { const dx = (i + 0.5 - cx) / (w / 2), dy = (j + 0.5 - bottom) / h; return dy <= 0 && dx * dx + dy * dy <= 1; };
+  for (let j = 0; j < 18; j++) for (let i = 0; i < 24; i++) {
+    if (!inside(i, j)) continue;
+    const edge = !inside(i - 1, j) || !inside(i + 1, j) || !inside(i, j - 1) || j === bottom;
+    px(x, i, j, edge ? P.ink : (j < bottom - h * 0.6 && i < cx) ? P.silver : P.gray);
+  }
+  if (!flat) { // uykulu gözler + "şşş" ağız
+    const ey = bottom - R(h * 0.6);
+    for (let i = 0; i < 3; i++) { px(x, cx - 5 + i, ey, P.ink); px(x, cx + 1 + i, ey, P.ink); }
+    for (let i = 0; i < 2; i++) px(x, cx - 1 + i, ey + 3, P.ink);
+    px(x, cx - 1 - frame, bottom + 0, P.ink);
+  } else { for (let i = 0; i < 3; i++) { px(x, cx - 5 + i, bottom - 2, P.ink); px(x, cx + 2 + i, bottom - 2, P.ink); } }
+  return c;
+}
+function genPuff(k) {
+  const c = mk(24, 24), x = c.getContext('2d'), r = [3, 6, 8, 9][k];
+  const pts = [[12, 12], [7, 13], [17, 13], [12, 8]];
+  pts.forEach(([cx, cy], n) => {
+    const rr = n ? r * 0.6 : r;
+    for (let j = 0; j < 24; j++) for (let i = 0; i < 24; i++) {
+      const d = Math.hypot(i + 0.5 - cx, j + 0.5 - cy);
+      if (k === 3 ? (d <= rr && d > rr - 1.5) : d <= rr) px(x, i, j, d > rr - 1 ? P.ink : P.white);
+    }
+  });
+  return c;
+}
+function genBlock(used) {
+  const c = mk(16, 16), x = c.getContext('2d');
+  x.fillStyle = P.ink; x.fillRect(0, 0, 16, 16);
+  x.fillStyle = used ? P.ddirt : P.gold; x.fillRect(1, 1, 14, 14);
+  x.fillStyle = used ? P.dirt : P.white; x.fillRect(1, 1, 14, 1); x.fillRect(1, 1, 1, 14);
+  x.fillStyle = used ? P.ink : P.orange; x.fillRect(1, 14, 14, 1); x.fillRect(14, 1, 1, 14);
+  [[2, 2], [13, 2], [2, 13], [13, 13]].forEach(([i, j]) => px(x, i, j, used ? P.ink : P.orange));
+  return c;
+}
+function genQMark(col) {
+  const c = mk(16, 16), x = c.getContext('2d'); const q = ['.XXXX.', 'XX..XX', '....XX', '...XX.', '..XX..', '......', '..XX..'];
+  q.forEach((row, j) => [...row].forEach((ch, i) => { if (ch === 'X') { px(x, 5 + i, 4 + j, col); px(x, 6 + i, 5 + j, P.orange); } }));
+  q.forEach((row, j) => [...row].forEach((ch, i) => { if (ch === 'X') px(x, 5 + i, 4 + j, col); }));
+  return c;
+}
+function genBrick() {
+  const c = mk(16, 16), x = c.getContext('2d');
+  x.fillStyle = P.orange; x.fillRect(0, 0, 16, 16); x.fillStyle = P.ddirt;
+  x.fillRect(0, 0, 16, 1); x.fillRect(0, 7, 16, 1); x.fillRect(0, 15, 16, 1);
+  x.fillRect(7, 0, 1, 8); x.fillRect(15, 0, 1, 8); x.fillRect(3, 8, 1, 7); x.fillRect(11, 8, 1, 7);
+  x.fillStyle = P.sand; x.fillRect(0, 1, 7, 1); x.fillRect(8, 1, 7, 1); x.fillRect(0, 8, 3, 1); x.fillRect(4, 8, 7, 1); x.fillRect(12, 8, 4, 1);
+  return c;
+}
+function genGroundTile() {
+  const c = mk(16, 32), x = c.getContext('2d'), r = rng(42);
+  x.fillStyle = P.dirt; x.fillRect(0, 0, 16, 32);
+  for (let n = 0; n < 14; n++) { const i = R(r() * 15), j = 5 + R(r() * 25); px(x, i, j, P.ddirt); if (r() < 0.4) px(x, i + 1, j, P.ddirt); }
+  for (let n = 0; n < 5; n++) px(x, R(r() * 15), 6 + R(r() * 24), P.sand);
+  x.fillStyle = P.green; x.fillRect(0, 0, 16, 4); x.fillStyle = P.lgreen; x.fillRect(0, 0, 16, 1);
+  [1, 4, 6, 9, 12, 14].forEach((i, n) => { px(x, i, 4, P.green); if (n % 2) px(x, i, 5, P.dgreen); });
+  x.fillStyle = P.dgreen; x.fillRect(0, 4, 16, 0);
+  return c;
+}
+function genSky(top, mid, bot) {
+  const c = mk(LW, LH), x = c.getContext('2d'), cols = [top, mid, bot];
+  for (let j = 0; j < LH; j++) for (let i = 0; i < LW; i++) {
+    const v = clamp(j / 150) * 2, b = Math.floor(v + BAYER[j % 4][i % 4] / 16 - 0.5 + 0.5);
+    px(x, i, j, cols[clamp(b, 0, 2)]);
+  }
+  return c;
+}
+function genMountains() {
+  const w = 640, c = mk(w, LH), x = c.getContext('2d'), r = rng(7);
+  const hts = []; for (let i = 0; i < w; i++) hts.push(0);
+  for (let p = 0; p < 7; p++) { const pc = p * 92 + r() * 40, ph = 50 + r() * 40, ws = 0.8 + r() * 0.5;
+    for (let i = 0; i < w; i++) { let dx = Math.abs(((i - pc) % w + w * 1.5) % w - w / 2); hts[i] = Math.max(hts[i], ph - dx * ws); } }
+  for (let i = 0; i < w; i++) {
+    const top = R(150 - hts[i]);
+    for (let j = top; j < LH; j++) {
+      const snow = j < top + 4 && hts[i] > 62;
+      px(x, i, j, j === top ? P.navy : snow ? P.cloud : ((i + j) % 2 && j < top + 6 && hts[i] > 62) ? P.silver : ((i * 3 + j) % 7 === 0 ? P.navy : P.purple));
+    }
+  }
+  return c;
+}
+function genHills() {
+  const w = 640, c = mk(w, LH), x = c.getContext('2d');
+  const hts = []; for (let i = 0; i < w; i++) hts.push(0);
+  [[40, 38, 60], [170, 30, 50], [260, 44, 70], [400, 34, 55], [520, 40, 62], [600, 28, 45]].forEach(([pc, ph, rw]) => {
+    for (let i = 0; i < w; i++) { const dx = Math.abs(((i - pc) % w + w * 1.5) % w - w / 2); if (dx < rw) hts[i] = Math.max(hts[i], ph * Math.sqrt(1 - (dx / rw) ** 2)); } });
+  for (let i = 0; i < w; i++) {
+    const top = R(152 - hts[i]); if (hts[i] <= 0) continue;
+    for (let j = top; j < LH; j++) px(x, i, j, j === top ? P.ink : j < top + 2 ? P.lgreen : (((i + j) % 2 === 0) && j < top + 5) ? P.lgreen : P.green);
+  }
+  // çalılar
+  [[100, 7], [300, 9], [470, 6]].forEach(([bx, br]) => { for (let j = -br; j <= 0; j++) for (let i = -br * 1.6; i <= br * 1.6; i++) {
+    const d = (i / (br * 1.6)) ** 2 + (j / br) ** 2; if (d <= 1) px(x, bx + i, 148 + j, d > 0.8 ? P.ink : j < -br * 0.5 ? P.lgreen : P.dgreen); } });
+  return c;
+}
+function genClouds() {
+  const w = 640, c = mk(w, 80), x = c.getContext('2d');
+  [[40, 30, 1], [230, 18, 0.8], [420, 40, 1.2], [560, 22, 0.9]].forEach(([cx, cy, s]) => {
+    [[0, 0, 9], [-10, 3, 7], [10, 3, 7], [4, -4, 7]].forEach(([dx, dy, r]) => {
+      r *= s;
+      for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) { const d = Math.hypot(i, j); if (d <= r) px(x, cx + dx * s + i, cy + dy * s + j, d > r - 1 ? P.sky2 : j > r * 0.4 ? P.sky2 : P.cloud); }
+    });
+  });
+  return c;
+}
+function genLogo() {
+  // irticalen işareti: konuşma balonu + 3 elmas, piksel ızgarada
+  const c = mk(34, 34), x = c.getContext('2d'), k = 30 / 92;
+  const bubble = [[0, 0], [92, 0], [92, 70], [40, 70], [14, 94], [14, 70], [0, 70]].map(([a, b]) => [a * k + 2, b * k + 2]);
+  const inPoly = (pX, pY, poly) => { let inn = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if (((yi > pY) !== (yj > pY)) && (pX < (xj - xi) * (pY - yi) / (yj - yi) + xi)) inn = !inn; } return inn; };
+  for (let j = 0; j < 34; j++) for (let i = 0; i < 34; i++) {
+    if (!inPoly(i + 0.5, j + 0.5, bubble)) continue;
+    const edge = !inPoly(i - 0.5, j + 0.5, bubble) || !inPoly(i + 1.5, j + 0.5, bubble) || !inPoly(i + 0.5, j - 0.5, bubble) || !inPoly(i + 0.5, j + 1.5, bubble);
+    px(x, i, j, edge ? P.ink : P.cloud);
+  }
+  [[22, P.navy], [46, P.red], [70, P.navy]].forEach(([dcx, col]) => {
+    const cx = dcx * k + 2, cy = 35 * k + 2;
+    for (let j = -4; j <= 4; j++) for (let i = -4; i <= 4; i++) if (Math.abs(i) + Math.abs(j) <= 3) px(x, R(cx + i - 0.5), R(cy + j - 0.5), col);
+  });
+  return c;
+}
+
+let SPR = {};
+// ── zamanlama ve fizik ──
+const T_TITLE_OUT = 2.3, T_LEVEL = 2.95, T_WIN = 7.75, T_IRIS = 9.2;
+const GROUND = 148, SPEED = 92;
+const charX = t => { // dünya x (ayak merkezi)
+  const t0 = T_LEVEL + 0.05; if (t < t0) return -24;
+  const tr = Math.min(t, T_WIN) - t0; let xw = -24 + SPEED * tr;
+  if (t > T_WIN) { const d = Math.min(t - T_WIN, 0.35); xw += SPEED * (d - d * d / (2 * 0.35)); }
+  return xw;
+};
+const CAM_LOCK = 7.35;
+const camX = t => Math.max(0, Math.min(charX(t), charX(CAM_LOCK)) - 110);
+const JUMPS = [ // [kalkış, süre, yükseklik]
+  [3.85, 0.62, 44], [4.72, 0.5, 26], [5.72, 0.56, 34], [6.28, 0.32, 14], [6.78, 0.7, 58], [8.05, 0.42, 18], [8.55, 0.42, 18]
+];
+function jumpState(t) {
+  for (const [t0, d, h] of JUMPS) {
+    if (t >= t0 && t < t0 + d) { const u = (t - t0) / d; return { y: 4 * h * u * (1 - u), u, vy: 4 * h * (1 - 2 * u) / d, j: [t0, d, h] }; }
+  }
+  return null;
+}
+const apex = i => ({ t: JUMPS[i][0] + JUMPS[i][1] / 2, x: charX(JUMPS[i][0] + JUMPS[i][1] / 2), y: GROUND - JUMPS[i][2] - 15 });
+let COINS, BLOCK, ENEMY;
+function setupWorld() {
+  const a0 = apex(0), a4 = apex(4);
+  COINS = [{ L: 'S', x: a0.x + 2, y: a0.y, t: a0.t - 0.05 }, { L: 'Z', x: a4.x + 2, y: a4.y - 4, t: a4.t - 0.05 }];
+  const bump = JUMPS[1][0] + JUMPS[1][1] / 2;
+  BLOCK = { x: R(charX(bump)) - 8, y: GROUND - 70, t: bump };
+  BLOCK.coin = { L: 'Ö', t: bump };
+  const land = JUMPS[2][0] + JUMPS[2][1];
+  ENEMY = { v: -14, land };
+  ENEMY.x0 = charX(land) - ENEMY.v * (land - T_LEVEL); // ex(t) = x0 + v (t - T_LEVEL)
+}
+const enemyX = t => ENEMY.x0 + ENEMY.v * (Math.min(t, ENEMY.land) - T_LEVEL);
+function collected(t) {
+  const got = [];
+  if (t >= COINS[0].t) got.push('S');
+  if (t >= BLOCK.coin.t + 0.45) got.push('Ö');
+  if (t >= COINS[1].t) got.push('Z');
+  return got;
+}
+function score(t) {
+  let s = 4150;
+  if (t >= COINS[0].t) s += 100; if (t >= BLOCK.t) s += 100; if (t >= ENEMY.land) s += 200; if (t >= COINS[1].t) s += 100;
+  if (t >= T_WIN + 0.3) s += Math.min(1000, R((t - T_WIN - 0.3) * 4000 / 10) * 10);
+  return s;
+}
+
+// ── sahneler ──
+function drawTitle(t) {
+  L.drawImage(SPR.nightSky, 0, 0);
+  // yıldızlar (4 kareli pırıltı)
+  const r = rng(99);
+  for (let n = 0; n < 34; n++) {
+    const sxp = R(r() * LW), syp = R(r() * 120), ph = Math.floor(t * 8 + r() * 8) % 8;
+    px(L, sxp, syp, ph < 5 ? P.silver : P.white);
+    if (ph === 6) { px(L, sxp - 1, syp, P.sky2); px(L, sxp + 1, syp, P.sky2); px(L, sxp, syp - 1, P.sky2); px(L, sxp, syp + 1, P.sky2); }
+  }
+  // zemin silueti
+  L.drawImage(SPR.hills, -R(t * 6) % 640, 18); L.drawImage(SPR.hills, -R(t * 6) % 640 + 640, 18);
+  L.fillStyle = P.ink; L.fillRect(0, 168, LW, 12);
+  L.fillStyle = 'rgba(13,11,26,0.55)'; L.fillRect(0, 100, LW, 80);
+  // logo düşer, zıplar (tam sayı konumlar)
+  const u = seg(t, 0.35, 1.05);
+  const drop = u < 1 ? (u < 0.6 ? -80 * (1 - (u / 0.6) ** 2) : -10 * Math.sin((u - 0.6) / 0.4 * Math.PI) * (1 - (u - 0.6) / 0.4)) : 0;
+  if (t > 0.35) {
+    L.drawImage(SPR.logo, 160 - 17, R(28 + drop));
+    drawText(L, 'İRTİCALEN', 16, 160, R(70 + drop), cGold);
+  }
+  if (t > 1.1) drawText(L, 'KONUŞMA MACERASI', 8, 160, 96, cWhite);
+  // "BAŞLA" yanıp söner; seçilince hızlı yanıp söner
+  const sel = t >= 1.85;
+  const vis = sel ? Math.floor(t * 16) % 2 === 0 : Math.floor(t * 2.5) % 2 === 0;
+  if (t > 1.2 && vis) {
+    const wv = drawText(L, 'BAŞLA', 8, 166, 126, sel ? cGold : cWhite);
+    const ax = 166 - R(wv / 2) - 12;
+    for (let j = 0; j < 7; j++) for (let i = 0; i <= 3 - Math.abs(j - 3); i++) px(L, ax + i, 126 + j, P.gold);
+  }
+}
+function drawLevel(t) {
+  const cam = camX(t);
+  L.drawImage(SPR.sky, 0, 0);
+  const par = (img, f, y) => { const o = -((R(cam * f) % 640) + 640) % 640; L.drawImage(img, o, y); L.drawImage(img, o + 640, y); };
+  par(SPR.clouds, 0.15, 8 + (Math.floor(t * 2) % 2)); // bulutlar yavaşça "nefes alır"
+  par(SPR.mount, 0.3, 0); par(SPR.hills, 0.55, 0);
+  // zemin
+  const go = -((R(cam) % 16) + 16) % 16;
+  for (let gx = go; gx < LW; gx += 16) L.drawImage(SPR.ground, gx, GROUND);
+  // tuğla sırası + ? bloğu
+  const bx = R(BLOCK.x - cam), by = BLOCK.y;
+  const bumpU = seg(t, BLOCK.t, BLOCK.t + 0.16), bumpY = bumpU > 0 && bumpU < 1 ? -R(Math.sin(bumpU * Math.PI) * 5) : 0;
+  L.drawImage(SPR.brick, bx - 32, by); L.drawImage(SPR.brick, bx - 16, by); L.drawImage(SPR.brick, bx + 16, by); L.drawImage(SPR.brick, bx + 32, by);
+  const used = t >= BLOCK.t;
+  L.drawImage(used ? SPR.blockUsed : SPR.block, bx, by + bumpY);
+  if (!used) L.drawImage(SPR.q[Math.floor(t * 6) % 3], bx, by); // "?" rengi döner (palet döngüsü)
+  // blok parası
+  if (t >= BLOCK.t && t < BLOCK.t + 0.45) {
+    const u = (t - BLOCK.t) / 0.45, cy = by - 14 - R(34 * Math.sin(u * Math.PI * 0.9));
+    L.drawImage(SPR.coin['Ö'][Math.floor(t * 18) % 6], bx, cy);
+  }
+  // paralar
+  COINS.forEach(c => { if (t < c.t) L.drawImage(SPR.coin[c.L][Math.floor(t * 10) % 6], R(c.x - cam) - 8, R(c.y + Math.sin(t * 5) * 1.2) - 8); });
+  // düşman
+  if (t < ENEMY.land + 0.5) {
+    const exs = R(enemyX(t) - cam);
+    if (t < ENEMY.land) L.drawImage(SPR.enemy[Math.floor(t * 5) % 2], exs - 12, GROUND - 18);
+    else if (t < ENEMY.land + 0.18) L.drawImage(SPR.enemyFlat, exs - 12, GROUND - 18);
+    else L.drawImage(SPR.puff[Math.min(3, Math.floor((t - ENEMY.land - 0.18) * 13))], exs - 12, GROUND - 20);
+  }
+  // Miko
+  const js = jumpState(t);
+  let spr, yOff = 0;
+  const landed = JUMPS.map(j => j[0] + j[1]).find(te => t >= te && t < te + 0.1);
+  const pre = JUMPS.map(j => j[0]).find(t0 => t >= t0 - 0.066 && t < t0);
+  if (js) { yOff = R(js.y); spr = js.vy > 60 ? SPR.micStretch : SPR.micAir; }
+  else if (pre !== undefined || landed !== undefined) spr = SPR.micSquash; // hazırlık / iniş ezilmesi
+  else if (t > T_WIN + 0.35) spr = SPR.micHappy;
+  else spr = SPR.micRun[Math.floor(t * 12) % 4];
+  const mx = R(charX(t) - cam);
+  L.drawImage(spr, mx - 14, GROUND - 40 - yOff);
+  // puan fırlamaları
+  const pops = [[COINS[0].t, COINS[0].x, COINS[0].y, '+100'], [BLOCK.t + 0.45, BLOCK.x + 8, BLOCK.y - 40, '+100'], [ENEMY.land, charX(ENEMY.land), GROUND - 34, '+200'], [COINS[1].t, COINS[1].x, COINS[1].y, '+100']];
+  pops.forEach(([pt, pxw, pyw, s]) => {
+    const d = t - pt; if (d < 0 || d > 0.7) return; if (d > 0.45 && Math.floor(d * 20) % 2) return;
+    drawText(L, s, 8, R(pxw - cam), R(pyw - 6 - d * 26), cWhite);
+  });
+  // pırıltılar (para alınca 4 köşeli yıldız)
+  [[COINS[0].t, COINS[0].x, COINS[0].y], [COINS[1].t, COINS[1].x, COINS[1].y], [BLOCK.t + 0.45, BLOCK.x + 8, BLOCK.y - 44]].forEach(([pt, xw, yw]) => {
+    const d = t - pt; if (d < 0 || d > 0.3) return; const r = 3 + R(d * 30);
+    [[r, 0], [-r, 0], [0, r], [0, -r], [R(r * 0.6), R(r * 0.6)], [-R(r * 0.6), R(r * 0.6)], [R(r * 0.6), -R(r * 0.6)], [-R(r * 0.6), -R(r * 0.6)]].forEach(([dx, dy]) => px(L, R(xw - cam + dx), R(yw + dy), Math.floor(d * 20) % 2 ? P.gold : P.white));
+  });
+  drawHUD(t);
+  // bölüm kartı
+  if (t > T_LEVEL + 0.1 && t < T_LEVEL + 1.3) {
+    const u = seg(t, T_LEVEL + 0.1, T_LEVEL + 0.3), v = seg(t, T_LEVEL + 1.05, T_LEVEL + 1.3);
+    const yy = R(-20 + 66 * u - 90 * v);
+    L.fillStyle = P.ink; L.fillRect(96, yy - 5, 128, 20); L.fillStyle = P.navy; L.fillRect(97, yy - 4, 126, 18);
+    drawText(L, 'BÖLÜM 1-1', 8, 160, yy + 1, cWhite);
+  }
+  // kazanma
+  if (t > T_WIN + 0.15) drawWin(t);
+}
+function drawHUD(t) {
+  L.fillStyle = 'rgba(13,11,26,0.35)'; L.fillRect(0, 0, LW, 17);
+  drawText(L, 'PUAN', 8, 8, 5, cGold, 'left');
+  drawText(L, String(score(t)).padStart(6, '0'), 8, 44, 5, cWhite, 'left');
+  const got = collected(t), W3 = ['S', 'Ö', 'Z'];
+  drawText(L, 'SÖZ', 8, 130, 5, cGold, 'left');
+  W3.forEach((ch, i) => {
+    const x0 = 160 + i * 13, flash = got.includes(ch) && t < (i === 0 ? COINS[0].t : i === 1 ? BLOCK.coin.t + 0.45 : COINS[1].t) + 0.3 && Math.floor(t * 20) % 2;
+    L.fillStyle = P.ink; L.fillRect(x0 - 1, 2, 12, 13); L.fillStyle = got.includes(ch) ? (flash ? P.white : P.orange) : P.navy; L.fillRect(x0, 3, 10, 11);
+    if (got.includes(ch)) drawText(L, ch, 8, x0 + 5, 5, cWhite, 'center', null, false);
+  });
+  drawText(L, 'SÜRE', 8, 244, 5, cGold, 'left');
+  drawText(L, String(Math.max(0, 60 - Math.floor(Math.max(0, Math.min(t, T_WIN) - T_LEVEL)))).padStart(2, '0'), 8, 312, 5, cWhite, 'right');
+}
+function drawWin(t) {
+  const u = seg(t, T_WIN + 0.15, T_WIN + 0.5);
+  // konfeti
+  const r = rng(5);
+  for (let n = 0; n < 60; n++) {
+    const x0 = r() * LW, sp = 30 + r() * 50, ph = r() * 6, col = [P.gold, P.red, P.sky2, P.lgreen, P.white][n % 5];
+    const yy = -10 + (t - T_WIN - 0.2) * sp - r() * 40; if (yy < 0) continue;
+    const xx = R(x0 + Math.sin(t * 4 + ph) * 4);
+    L.fillStyle = col; L.fillRect(xx, R(yy), Math.floor(t * 8 + ph) % 2 ? 2 : 1, Math.floor(t * 8 + ph) % 2 ? 1 : 2);
+  }
+  // pano (tam sayı adımlarla büyür)
+  const bw = R(236 * Math.min(1, u * 1.15 - (u > 0.87 ? (u - 0.87) * 1.15 : 0))), bh = R(38 * u);
+  if (bw < 4) return;
+  const bx = 160 - Math.floor(bw / 2), by = 40 - Math.floor(bh / 2) + 8;
+  L.fillStyle = P.ink; L.fillRect(bx - 2, by - 2, bw + 4, bh + 4);
+  L.fillStyle = P.gold; L.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+  L.fillStyle = P.navy; L.fillRect(bx, by, bw, bh);
+  if (u >= 1) drawText(L, 'KELİME TAMAM!', 16, 160, 38, cCycle[Math.floor(t * 12) % 6]);
+}
+// SNES mozaik: blok boyutu büyür, sonra küçülür
+function mosaic(b) {
+  if (b <= 1) return;
+  const w = Math.ceil(LW / b), h = Math.ceil(LH / b), m = MOS.getContext('2d');
+  m.imageSmoothingEnabled = false; m.clearRect(0, 0, LW, LH);
+  // her bloğun sol-üst pikselini örnekle
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) m.drawImage(LO, i * b, j * b, 1, 1, i * b, j * b, b, b);
+  L.drawImage(MOS, 0, 0);
+}
+function fadeSteps(v) { // 8 kademeli karartma (donanım parlaklık kaydı gibi)
+  const s = Math.floor(clamp(v) * 8) / 8; if (s <= 0) return;
+  L.fillStyle = `rgba(0,0,0,${s})`; L.fillRect(0, 0, LW, LH);
+}
+function iris(cx, cy, r) {
+  if (r > 400) return;
+  const img = L.getImageData(0, 0, LW, LH), d = img.data;
+  for (let j = 0; j < LH; j++) for (let i = 0; i < LW; i++) {
+    if ((i + 0.5 - cx) ** 2 + (j + 0.5 - cy) ** 2 > r * r) { const k = (j * LW + i) * 4; d[k] = d[k + 1] = d[k + 2] = 0; }
+  }
+  L.putImageData(img, 0, 0);
+}
+
+function render(t) {
+  L.imageSmoothingEnabled = false;
+  if (t < T_TITLE_OUT + 0.35) {
+    drawTitle(t);
+    if (t < 0.35) iris(160, 90, 190 * seg(t, 0.02, 0.35));
+    const m = seg(t, T_TITLE_OUT, T_TITLE_OUT + 0.35);
+    if (m > 0) { mosaic([1, 2, 4, 8, 12, 16][Math.floor(m * 5.99)]); fadeSteps(m); }
+  } else if (t < T_LEVEL) {
+    L.fillStyle = '#000'; L.fillRect(0, 0, LW, LH);
+  } else {
+    drawLevel(t);
+    const m = 1 - seg(t, T_LEVEL, T_LEVEL + 0.35);
+    if (m > 0) { mosaic([1, 2, 4, 8, 12, 16][Math.floor(m * 5.99)]); fadeSteps(m); }
+    if (t > T_IRIS) {
+      const mx = charX(t) - camX(t), js = jumpState(t);
+      iris(R(mx), GROUND - 18 - (js ? R(js.y) : 0), Math.max(0, 200 * (1 - seg(t, T_IRIS, T_IRIS + 0.55)) ** 1.4));
+    }
+  }
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(LO, 0, 0, W, H);
+}
+
+window.ready = (async () => {
+    SPR.sky = genSky(P.blue, P.sky, P.sky2); SPR.nightSky = genSky(P.ink, P.navy, P.purple);
+  SPR.mount = genMountains(); SPR.hills = genHills(); SPR.clouds = genClouds(); SPR.ground = genGroundTile();
+  SPR.brick = genBrick(); SPR.block = genBlock(false); SPR.blockUsed = genBlock(true);
+  SPR.q = [genQMark(P.white), genQMark(P.cloud), genQMark(P.sky2)];
+  SPR.micRun = [0, 1, 2, 3].map(l => genMic({ legs: l }));
+  SPR.micAir = genMic({ air: true }); SPR.micStretch = genMic({ air: true, sx: 0.88, sy: 1.14 }); SPR.micSquash = genMic({ sx: 1.2, sy: 0.8, legs: 1 });
+  SPR.micHappy = genMic({ legs: 1, happy: true });
+  SPR.enemy = [genEnemy(0), genEnemy(1)]; SPR.enemyFlat = genEnemy(0, true); SPR.puff = [0, 1, 2, 3].map(genPuff);
+  SPR.logo = genLogo();
+  SPR.coin = {}; ['S', 'Ö', 'Z'].forEach(Lt => SPR.coin[Lt] = [12, 9, 5, 2, 5, 9].map(w => genCoin(w, Lt)));
+  setupWorld();
+  return true;
+})();
+window.draw = ({ t }) => { render(t); return cv.toDataURL('image/jpeg', 0.95).split(',')[1]; };
+window.events = () => {
+  const ev = [{ t: 1.85, k: 'select' }, { t: T_WIN + 0.15, k: 'fanfare' }];
+  JUMPS.forEach(([t0], i) => ev.push({ t: t0, k: i === 3 ? 'hop' : 'jump' }));
+  ev.push({ t: COINS[0].t, k: 'coin' }, { t: COINS[1].t, k: 'coin' }, { t: BLOCK.t, k: 'bump' }, { t: BLOCK.t + 0.02, k: 'coin' }, { t: ENEMY.land, k: 'stomp' });
+  ev.push({ t: T_IRIS, k: 'iris' });
+  return ev;
+};
+</script>
+</body></html>

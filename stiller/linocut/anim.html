@@ -1,0 +1,268 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="yazi-tipleri.css"></head>
+<body style="margin:0;background:#000"><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+//  LİNOL BASKI (linocut) — 10 s vitrin klibi. window.draw({t}) → JPEG base64
+//  İki renk (siyah + kırmızı) krem baskı kâğıdında, kalıp izi (plate mark) içinde.
+//  Kırmızı güneş ışınları → siyah sayaç halkası → 3·2·1 rakamları "damga" gibi basılır.
+//  Siyah merdane geçer, baskı kâğıttan kaldırılır → "SÖZ / SENDE!" + köşede kırmızı mühür.
+//  Hareket 12 fps basamaklı; mürekkep dokusu her 1/8 sn yeniden "basılır" (boil).
+//  Oyma izleri: siyah/kırmızı alanlarda beyaz V-oluk çizgileri; boş alanda oyulmamış kıymıklar.
+// ─────────────────────────────────────────────────────────────────────────────
+const W = 1920, H = 1080;
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const eInOut = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const eOut = x => 1 - Math.pow(1 - clamp(x), 3);
+function rng(seed) { let s = seed >>> 0 || 1; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; }; }
+const mk = (w = W, h = H) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const FONT = "'Alfa Slab One', serif";
+const PAPER = '#efe5cf', INK = '#15120f', RED = '#c7331f';
+const PLATE = { x: 86, y: 70, w: W - 172, h: H - 140 };
+const CX = 960, CY = 540;
+
+// ── kâğıt, mürekkep maskeleri (bir kez) ───────────────────────────────────────
+const PAPERCV = mk(), MASKS = [];
+function valueNoise(w, h, gw, gh, r, smooth = true) {   // küçük ızgara → büyütülmüş yumuşak gürültü
+  const s = mk(gw, gh), c = s.getContext('2d'), id = c.createImageData(gw, gh);
+  for (let i = 0; i < id.data.length; i += 4) { const v = r() * 255; id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255; }
+  c.putImageData(id, 0, 0); const b = mk(w, h), bc = b.getContext('2d'); bc.imageSmoothingEnabled = smooth; bc.imageSmoothingQuality = 'high'; bc.drawImage(s, 0, 0, w, h);
+  return bc.getImageData(0, 0, w, h).data;
+}
+function buildPaper() {
+  const c = PAPERCV.getContext('2d'); c.fillStyle = PAPER; c.fillRect(0, 0, W, H);
+  const id = c.getImageData(0, 0, W, H), d = id.data, r = rng(5), low = valueNoise(W, H, 80, 45, r), mid = valueNoise(W, H, 400, 225, r);
+  for (let i = 0; i < d.length; i += 4) { const n = (low[i] - 128) * .06 + (mid[i] - 128) * .05 + (r() - .5) * 10; d[i] += n; d[i + 1] += n * .95; d[i + 2] += n * .85; }
+  c.putImageData(id, 0, 0);
+  // kalıp izi: kâğıda gömülmüş dikdörtgen (kabartma)
+  const P = PLATE; c.lineWidth = 3;
+  c.strokeStyle = 'rgba(255,255,255,0.55)'; c.strokeRect(P.x + 2, P.y + 2, P.w, P.h);
+  c.strokeStyle = 'rgba(90,70,40,0.28)'; c.strokeRect(P.x - 1, P.y - 1, P.w, P.h);
+  c.fillStyle = 'rgba(120,95,60,0.05)'; c.fillRect(P.x, P.y, P.w, P.h);
+}
+function buildMasks() {
+  for (let v = 0; v < 4; v++) {
+    const r = rng(100 + v * 17), m = mk(), c = m.getContext('2d'), id = c.createImageData(W, H), d = id.data;
+    const low = valueNoise(W, H, 48, 27, r), patch = valueNoise(W, H, 140, 80, r), fine = valueNoise(W, H, 960, 540, r);
+    for (let i = 0; i < d.length; i += 4) {
+      let a = .9 + (low[i] / 255) * .14;                                   // mürekkep yoğunluğu dalgalanır
+      if (patch[i] > 218) a *= 1 - clamp((patch[i] - 218) / 30, 0, 1) * .55;      // mürekkep tutmamış lekeler
+      if (fine[i] > 226 || r() < .006) a *= r() * .35;                      // kâğıt dişi: minik boşluklar
+      d[i] = d[i + 1] = d[i + 2] = 0; d[i + 3] = clamp(a, 0, 1) * 255;
+    }
+    c.putImageData(id, 0, 0); MASKS.push(m);
+  }
+}
+
+// ── yardımcı şekiller ────────────────────────────────────────────────────────
+function lens(c, x0, y0, x1, y1, w) {            // V-oluk / kıymık: iki ucu sivri mercek
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, L = Math.hypot(x1 - x0, y1 - y0) || 1, nx = -(y1 - y0) / L * w, ny = (x1 - x0) / L * w;
+  c.moveTo(x0, y0); c.quadraticCurveTo(mx + nx, my + ny, x1, y1); c.quadraticCurveTo(mx - nx, my - ny, x0, y0);
+}
+function roughPoly(c, pts, j, seed, step = 34) {   // kenarlar bölünür, her ara nokta hafif oynar (el ile oyulmuş kenar)
+  const r = rng(seed), out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length], L = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.max(1, Math.ceil(L / step));
+    const nx = -(b[1] - a[1]) / (L || 1), ny = (b[0] - a[0]) / (L || 1);
+    for (let k = 0; k < n; k++) { const u = k / n, d = (r() - .5) * j * (k ? .7 : 1); out.push([lerp(a[0], b[0], u) + nx * d, lerp(a[1], b[1], u) + ny * d]); }
+  }
+  c.moveTo(...out[0]); out.forEach(p => c.lineTo(...p)); c.closePath();
+}
+function roughCircle(c, x, y, R, j, seed, n = 90) { const r = rng(seed), pts = []; for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2, rr = R + (r() - .5) * j; pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr]); } c.moveTo(...pts[0]); pts.forEach(p => c.lineTo(...p)); c.closePath(); }
+
+// ── baskı olayları (12 fps basamak) ───────────────────────────────────────────
+const q = t => Math.floor(t * 12) / 12;
+function stamp(tq, t0) { if (tq < t0) return null; const k = Math.round((tq - t0) * 12); return { s: k === 0 ? 1.07 : k === 1 ? .985 : 1, jx: k < 2 ? (k ? -2 : 3) : 0, jy: k < 2 ? (k ? 1 : -2) : 0 }; }
+
+// ── katman tuvalleri ─────────────────────────────────────────────────────────
+const LB = mk(), LR = mk(), TMP = mk();
+const lb = LB.getContext('2d'), lr = LR.getContext('2d'), tmp = TMP.getContext('2d');
+function withStamp(c, st, ox, oy, fn) { c.save(); c.translate(ox + st.jx, oy + st.jy); c.scale(st.s, st.s); c.translate(-ox, -oy); fn(c); c.restore(); }
+
+// sahne 1 ────────────────────────────────────────────────────────────────────
+function sunburst(c, tq) {
+  const rot = Math.floor(tq * 4) * .012;                       // basamaklı yavaş dönüş
+  const n = 22; c.beginPath();
+  for (let i = 0; i < n; i++) {
+    const a0 = rot + i / n * Math.PI * 2, a1 = a0 + Math.PI / n * 1.05, R0 = 430, R1 = 1300;
+    roughPoly(c, [[CX + Math.cos(a0) * R0, CY + Math.sin(a0) * R0], [CX + Math.cos(a0) * R1, CY + Math.sin(a0) * R1], [CX + Math.cos(a1) * R1, CY + Math.sin(a1) * R1], [CX + Math.cos(a1) * R0, CY + Math.sin(a1) * R0]], 5, i + 3);
+  }
+  c.fill();
+  // ışın içinde oyma çizgileri
+  c.save(); c.globalCompositeOperation = 'destination-out'; c.beginPath(); const r = rng(9);
+  for (let i = 0; i < n; i++) { const a = rot + (i + .52) / n * Math.PI * 2; for (let k = 0; k < 3; k++) { const R0 = 470 + r() * 200, R1 = R0 + 90 + r() * 260, da = (r() - .5) * .05;
+    lens(c, CX + Math.cos(a + da) * R0, CY + Math.sin(a + da) * R0, CX + Math.cos(a + da * .6) * R1, CY + Math.sin(a + da * .6) * R1, 2.6 + r() * 2); } }
+  c.fill(); c.restore();
+}
+function ring(c) {
+  c.beginPath(); roughCircle(c, CX, CY, 340, 4, 21); roughCircle(c, CX, CY, 298, 4, 22); c.fill('evenodd');
+  // yüzük içine oyulmuş çentikler
+  c.save(); c.globalCompositeOperation = 'destination-out'; c.beginPath();
+  for (let i = 0; i < 60; i++) { const a = i / 60 * Math.PI * 2, l = i % 5 ? 12 : 26; lens(c, CX + Math.cos(a) * (338 - l), CY + Math.sin(a) * (338 - l), CX + Math.cos(a) * 334, CY + Math.sin(a) * 334, i % 5 ? 2 : 3.5); }
+  c.fill(); c.restore();
+  // halkanın içi: ince oyulmamış iç çember
+  c.beginPath(); roughCircle(c, CX, CY, 282, 3, 23); roughCircle(c, CX, CY, 276, 3, 24); c.fill('evenodd');
+}
+function numeral(c, ch, st) {
+  tmp.setTransform(1, 0, 0, 1, 0, 0); tmp.globalCompositeOperation = 'source-over'; tmp.clearRect(0, 0, W, H);
+  tmp.font = `400 430px ${FONT}`; tmp.textAlign = 'center'; tmp.textBaseline = 'alphabetic'; tmp.fillStyle = '#000';
+  tmp.fillText(ch, CX, CY + 152);
+  // gövdede V-oluk gölge çizgileri (sağ-alt yarı)
+  tmp.globalCompositeOperation = 'destination-out'; tmp.beginPath(); const r = rng(ch.charCodeAt(0));
+  for (let i = 0; i < 14; i++) { const y = CY - 60 + i * 17, x0 = CX + 10 + r() * 30 - i * 4, len = 60 + r() * 90; lens(tmp, x0, y + 6, x0 + len, y - 12, 2.2 + r() * 1.6); }
+  for (let i = 0; i < 6; i++) { const y = CY - 150 + i * 16; lens(tmp, CX + 40, y, CX + 110 + r() * 40, y - 8, 1.8); }
+  tmp.fill();
+  withStamp(c, st, CX, CY, cc => cc.drawImage(TMP, 0, 0));
+}
+function progressArc(c, frac) {
+  if (frac <= 0) return; c.save(); c.lineCap = 'butt'; c.lineWidth = 26; c.beginPath();
+  c.arc(CX, CY, 378, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2); c.stroke(); c.restore();
+}
+function chatter(c, seed, n, zone) {   // oyulmamış kıymıklar (boş alandaki küçük siyah izler)
+  const r = rng(seed); c.beginPath();
+  for (let i = 0; i < n; i++) { const [x, y] = zone(r); const a = r() * Math.PI, l = 10 + r() * 34; lens(c, x, y, x + Math.cos(a) * l, y + Math.sin(a) * l, 1.5 + r() * 2.5); }
+  c.fill();
+}
+
+// sahne 2 ────────────────────────────────────────────────────────────────────
+const BUB = { x: 960, y: 480, w: 1080, h: 520 };
+function bubble(c) {
+  const { x, y, w, h } = BUB, x0 = x - w / 2, y0 = y - h / 2, r = 70;
+  const pts = []; const arcPts = (cx, cy, a0, a1) => { for (let i = 0; i <= 8; i++) { const a = lerp(a0, a1, i / 8); pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); } };
+  arcPts(x0 + r, y0 + r, Math.PI, Math.PI * 1.5); arcPts(x0 + w - r, y0 + r, -Math.PI / 2, 0); arcPts(x0 + w - r, y0 + h - r, 0, Math.PI / 2);
+  pts.push([x - 180, y0 + h], [x - 330, y0 + h + 170], [x - 300, y0 + h]);
+  arcPts(x0 + r, y0 + h - r, Math.PI / 2, Math.PI);
+  c.beginPath(); roughPoly(c, pts, 5, 77); c.fill();
+  // kırmızı blokta oyma: alt-sağda akan oluklar
+  c.save(); c.globalCompositeOperation = 'destination-out'; c.beginPath(); const rr = rng(4);
+  for (let i = 0; i < 16; i++) { const yy = y0 + h - 40 - i * 13, xx = x0 + w - 60 - rr() * 120 - i * 18; lens(c, xx - 160 - rr() * 120, yy + 4, xx, yy - 4, 2 + rr() * 1.5); }
+  for (let i = 0; i < 10; i++) { const yy = y0 + 36 + i * 12; lens(c, x0 + 40 + rr() * 20, yy, x0 + 120 + rr() * 110, yy - 3, 1.8); }
+  c.fill(); c.restore();
+}
+function rays2(c, tq) {   // balondan taşan vurgu çizgileri, 4 fps "boil"
+  const b = Math.floor(tq * 4), r = rng(55); c.beginPath();
+  for (let i = 0; i < 34; i++) {
+    const a = i / 34 * Math.PI * 2 + (r() - .5) * .08; const e = Math.hypot(Math.cos(a) * BUB.w * .5, Math.sin(a) * BUB.h * .5) * 1.12 + 20;
+    const wob = rng(b * 97 + i)(), R0 = e + 12 + wob * 18, R1 = R0 + 50 + r() * 150 + wob * 30;
+    const x0 = BUB.x + Math.cos(a) * R0, y0 = BUB.y + Math.sin(a) * R0 * .9;
+    if (y0 > BUB.y + BUB.h * .55 && Math.cos(a) < 0 && Math.cos(a) > -.8) continue;   // kuyruk yönünü boş bırak
+    lens(c, x0, y0, BUB.x + Math.cos(a) * R1, BUB.y + Math.sin(a) * R1 * .9, 5 + r() * 5);
+  }
+  c.fill();
+}
+function carvedWord(c, st, txt, x, y, ls, seed) {   // kelime: gövdesinde V-oluk izleri olan siyah blok harfler
+  tmp.setTransform(1, 0, 0, 1, 0, 0); tmp.globalCompositeOperation = 'source-over'; tmp.clearRect(0, 0, W, H);
+  tmp.font = `400 212px ${FONT}`; tmp.textAlign = 'center'; tmp.textBaseline = 'alphabetic'; tmp.letterSpacing = ls; tmp.fillStyle = '#000';
+  tmp.fillText(txt, x, y); const tw = tmp.measureText(txt).width; tmp.letterSpacing = '0px';
+  tmp.globalCompositeOperation = 'destination-out'; tmp.beginPath(); const r = rng(seed);
+  for (let i = 0; i < 9; i++) { const yy = y - 16 - i * 11, x0 = x + tw * (.05 + r() * .3), len = 70 + r() * 150; lens(tmp, x0, yy + 3, x0 + len, yy - 5, 1.6 + r() * 1.4); }
+  for (let i = 0; i < 5; i++) { const yy = y - 150 + i * 10, x0 = x - tw * (.45 - r() * .2); lens(tmp, x0, yy, x0 + 50 + r() * 70, yy - 3, 1.4); }
+  tmp.fill(); tmp.globalCompositeOperation = 'source-over';
+  withStamp(c, st, x, y - 80, cc => cc.drawImage(TMP, 0, 0));
+}
+function words(c, tq) {
+  const s1 = stamp(tq, 5.45), s2 = stamp(tq, 5.95);
+  if (s1) carvedWord(c, s1, 'SÖZ', BUB.x - 4, BUB.y - 12, '6px', 31);
+  if (s2) carvedWord(c, s2, 'SENDE!', BUB.x, BUB.y + 196, '2px', 32);
+}
+function seal(cR, cB, tq) {   // köşe mührü: kırmızı kare içinde oyulmuş logo + siyah yazı
+  const st = stamp(tq, 6.9); if (!st) return;
+  const x = 1520, y = 850, s = 118;
+  withStamp(cR, st, x + s / 2, y + s / 2, c => {
+    c.beginPath(); roughPoly(c, [[x, y], [x + s, y], [x + s, y + s], [x, y + s]], 4, 12); c.fill();
+    c.save(); c.globalCompositeOperation = 'destination-out'; const k = s * .72 / 92, ox = x + s * .14, oy = y + s * .16;
+    const P = pts => { c.beginPath(); pts.forEach((p, i) => { const u = ox + p[0] * k, v = oy + p[1] * k; i ? c.lineTo(u, v) : c.moveTo(u, v); }); c.closePath(); };
+    P([[0, 0], [92, 0], [92, 70], [40, 70], [14, 94], [14, 70], [0, 70]]); c.lineWidth = 7; c.stroke();
+    [22, 46, 70].forEach(cx => { P([[cx, 25], [cx + 10, 35], [cx, 45], [cx - 10, 35]]); c.fill(); });
+    c.restore();
+  });
+  const st2 = stamp(tq, 7.2); if (!st2) return;
+  withStamp(cB, st2, x - 30, y + 60, c => { c.font = `400 58px ${FONT}`; c.textAlign = 'right'; c.textBaseline = 'alphabetic'; c.fillText('irticalen.', x - 28, y + 84); });
+}
+
+// ── kare ─────────────────────────────────────────────────────────────────────
+function inkComposite(target, layer, color, maskIdx, dx, dy, alpha = 1) {
+  const c = layer.getContext('2d');
+  c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'destination-in'; c.drawImage(MASKS[maskIdx], (maskIdx % 2) * -7, 0, W + 7, H); c.globalCompositeOperation = 'source-in';
+  c.fillStyle = color; c.fillRect(0, 0, W, H); c.globalCompositeOperation = 'source-over';
+  target.save(); target.globalAlpha = alpha; target.globalCompositeOperation = 'multiply'; target.drawImage(layer, dx, dy); target.restore();
+}
+function scene1(tq) {
+  lr.fillStyle = '#000'; lb.fillStyle = '#000'; lb.strokeStyle = '#000'; lr.strokeStyle = '#000';
+  const sR = stamp(tq, .35); if (sR) withStamp(lr, sR, CX, CY, c => sunburst(c, tq));
+  const sB = stamp(tq, .8); if (sB) withStamp(lb, sB, CX, CY, c => { ring(c); chatter(c, 3, 26, r => { const a = r() * 6.28, rr = 300 + r() * 120; return [CX + Math.cos(a) * rr * 1.1, CY + Math.sin(a) * rr]; }); });
+  // kırmızı ilerleme yayı: 3 saniyede basamaklı azalır
+  if (tq >= 1.2) progressArc(lr, 1 - clamp((tq - 1.2) / 3));
+  const n = tq >= 3.2 ? '1' : tq >= 2.2 ? '2' : tq >= 1.2 ? '3' : null;
+  if (n) numeral(lb, n, stamp(tq, n === '3' ? 1.2 : n === '2' ? 2.2 : 3.2));
+}
+function scene2(tq) {
+  lr.fillStyle = '#000'; lb.fillStyle = '#000';
+  bubble(lr); rays2(lb, tq); words(lb, tq); seal(lr, lb, tq);
+  chatter(lb, 8, 40, r => { const side = r() < .5; return [side ? PLATE.x + 20 + r() * 160 : PLATE.x + PLATE.w - 180 + r() * 160, PLATE.y + 30 + r() * (PLATE.h - 60)]; });
+}
+function printScene(target, fn, tq, mi) {
+  for (const c of [lb, lr]) { c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.clearRect(0, 0, W, H); }
+  // her şey kalıp alanına kırpılır
+  for (const c of [lb, lr]) { c.save(); c.beginPath(); c.rect(PLATE.x, PLATE.y, PLATE.w, PLATE.h); c.clip(); }
+  fn(tq);
+  for (const c of [lb, lr]) c.restore();
+  target.drawImage(PAPERCV, 0, 0);
+  inkComposite(target, LR, RED, mi, 4, -3);                    // kırmızı kalıp: hafif kayık baskı (register)
+  inkComposite(target, LB, INK, (mi + 1) % 4, 0, 0);
+}
+const S1CV = mk(), S2CV = mk(), s1c = S1CV.getContext('2d'), s2c = S2CV.getContext('2d');
+function roller(c, x, mi) {   // merdane: kalıp soldan sağa siyah mürekkeple kaplanır; pürüzlü kenar + merdane izleri
+  tmp.setTransform(1, 0, 0, 1, 0, 0); tmp.globalCompositeOperation = 'source-over'; tmp.clearRect(0, 0, W, H);
+  tmp.save(); tmp.beginPath(); tmp.rect(PLATE.x - 6, PLATE.y - 6, PLATE.w + 12, PLATE.h + 12); tmp.clip();
+  tmp.beginPath(); tmp.moveTo(0, 0); const r = rng(7);
+  for (let y = 0; y <= H; y += 18) tmp.lineTo(x + Math.sin(y * .045) * 12 + (r() - .5) * 9, y);
+  tmp.lineTo(0, H); tmp.closePath(); tmp.fillStyle = '#000'; tmp.fill(); tmp.clip();
+  tmp.globalCompositeOperation = 'destination-out'; const r2 = rng(3);
+  for (let i = 0; i < 26; i++) { const yy = PLATE.y + r2() * PLATE.h, hh = 2 + r2() * 7, x0 = PLATE.x + r2() * PLATE.w * .6, ww = 200 + r2() * 900;
+    const g = tmp.createLinearGradient(x0, 0, x0 + ww, 0); const al = .05 + r2() * .1; g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(.3, `rgba(0,0,0,${al})`); g.addColorStop(.7, `rgba(0,0,0,${al})`); g.addColorStop(1, 'rgba(0,0,0,0)');
+    tmp.fillStyle = g; tmp.fillRect(x0, yy, ww, hh); }
+  tmp.restore();
+  tmp.globalCompositeOperation = 'destination-in'; tmp.drawImage(MASKS[mi], 0, 0); tmp.globalCompositeOperation = 'source-in'; tmp.fillStyle = INK; tmp.fillRect(0, 0, W, H);
+  tmp.globalCompositeOperation = 'source-over';
+  c.save(); c.globalCompositeOperation = 'multiply'; c.drawImage(TMP, 0, 0); c.drawImage(TMP, 0, 0); c.restore();   // iki kat: merdane mürekkebi opak
+}
+function peel(p) {   // baskıyı kalıptan kaldırma: yatay eğik katlama çizgisi aşağıdan yukarı çıkar
+  const ang = .1, fy = lerp(H + 240, -380, p), nx = Math.sin(ang), ny = -Math.cos(ang);   // normal yukarı
+  const Lb = 4000, dx = Math.cos(ang), dy = Math.sin(ang);
+  // alt taraf: yeni baskı
+  ctx.drawImage(S2CV, 0, 0);
+  ctx.save(); ctx.beginPath(); ctx.moveTo(CX - dx * Lb, fy - dy * Lb); ctx.lineTo(CX + dx * Lb, fy + dy * Lb); ctx.lineTo(CX + dx * Lb + nx * Lb, fy + dy * Lb + ny * Lb); ctx.lineTo(CX - dx * Lb + nx * Lb, fy - dy * Lb + ny * Lb); ctx.closePath(); ctx.clip();
+  // üst taraf: mürekkepli siyah (merdanelenmiş kalıp)
+  ctx.drawImage(S1CV, 0, 0);
+  const a = 1 - 2 * nx * nx, b = -2 * nx * ny, d = 1 - 2 * ny * ny, ex = CX - (a * CX + b * fy), ey = fy - (b * CX + d * fy);
+  ctx.save(); ctx.transform(a, b, b, d, ex, ey); ctx.beginPath(); ctx.rect(0, 0, W, H);
+  ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 50; ctx.fillStyle = '#e2d7bf'; ctx.fill(); ctx.shadowColor = 'transparent';
+  ctx.clip(); ctx.drawImage(PAPERCV, 0, 0); ctx.fillStyle = 'rgba(90,70,40,0.1)'; ctx.fillRect(0, 0, W, H); ctx.restore();   // kaldırılan kâğıdın arka yüzü
+  const g = ctx.createLinearGradient(CX, fy, CX + nx * 160, fy + ny * 160); g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(.3, 'rgba(255,255,255,0.3)'); g.addColorStop(1, 'rgba(60,40,20,0.12)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); ctx.restore();
+}
+function renderFrame(t) {
+  const tq = q(t), mi = Math.floor(t * 8) % 4;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  const rollP = eInOut(seg(tq, 4.25, 4.75)), peelP = eInOut(seg(t, 4.8, 5.35));
+  if (peelP <= 0) {
+    printScene(ctx, scene1, tq, mi);
+    if (rollP > 0) roller(ctx, lerp(PLATE.x - 60, PLATE.x + PLATE.w + 60, rollP), mi);
+  } else {
+    printScene(s1c, scene1, 4.75, mi); roller(s1c, W + 80, mi);
+    printScene(s2c, scene2, tq, mi);
+    if (peelP >= 1) ctx.drawImage(S2CV, 0, 0); else peel(peelP);
+  }
+  const f = Math.min(eOut(seg(t, 0, .3)), 1 - eInOut(seg(t, 9.35, 10)));
+  if (f < 1) { ctx.fillStyle = `rgba(16,13,11,${1 - f})`; ctx.fillRect(0, 0, W, H); }
+}
+
+window.draw = function (job) { renderFrame(job.t); return cv.toDataURL('image/jpeg', job.q || 0.92).split(',')[1]; };
+window.ready = document.fonts.load(`400 200px ${FONT}`, 'SÖZ SENDE! 321 irticalen.').then(() => document.fonts.ready).then(() => {
+  buildPaper(); buildMasks(); renderFrame(0);
+});
+</script></body></html>

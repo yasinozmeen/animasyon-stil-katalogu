@@ -1,0 +1,307 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><link rel="stylesheet" href="fonts.css"></head>
+<body style="margin:0;background:#05090c"><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+//  hud — soğuk, neonsuz bilim-kurgu arayüzü. window.draw({t}) → JPEG base64
+//  Hikâye: halkalar kurulur → radar taraması bir konuşmayı analiz eder, etiketler
+//  kilitlenir → ses halkası "açılıp" zaman çizgisine dönüşür → tarama kafası
+//  duraksama/dolgu sözcüklerini işaretler → AKICILIK 87 → arayüz geri çekilir.
+// ─────────────────────────────────────────────────────────────────────────────
+const W = 1920, H = 1080, CX = 960, CY = 540, DUR = 9.0;
+const cv = document.getElementById('c'); const ctx = cv.getContext('2d');
+const mk = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const lerp = (a, b, p) => a + (b - a) * p;
+const eOut = x => 1 - Math.pow(1 - x, 3), eIn = x => x * x * x, eIO = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const eOut5 = x => 1 - Math.pow(1 - x, 5);
+const eBack = x => x <= 0 ? 0 : x >= 1 ? 1 : 1 + 2.4 * Math.pow(x - 1, 3) + 1.4 * Math.pow(x - 1, 2);
+const hash = n => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+const TAU = Math.PI * 2, D2R = Math.PI / 180;
+const ICE = [160, 208, 226], WH = '#eef6fa';
+const ice = a => `rgba(${ICE[0]},${ICE[1]},${ICE[2]},${a})`, wh = a => `rgba(238,246,250,${a})`;
+const DISP = "'Chakra Petch', sans-serif", MONO = "'Martian Mono', monospace";
+function F(size, w, fam, ls = 0) { ctx.font = `${w} ${size}px ${fam}`; ctx.letterSpacing = ls + 'px'; }
+
+// ── zaman çizelgesi ──────────────────────────────────────────────────────────
+const T = { ring0: 0.15, scan0: 1.15, scan1: 4.05, done: 4.1, un0: 4.45, un1: 5.35, head0: 5.55, head1: 7.15, res: 7.2, out0: 8.1, end: 8.95 };
+const R1 = 118, R2 = 180, R3 = 292, R4 = 332, R5 = 396;
+const NB = 120;
+// konuşma zarfı: üç duraksama boşluğu
+const PAUSES = [{ i: 30, w: 3, lab: '0,6 sn' }, { i: 65, w: 4, lab: '1,1 sn' }, { i: 97, w: 2, lab: '0,4 sn' }];
+const FILLERS = [{ i: 46, lab: '“şey”' }, { i: 81, lab: '“yani”' }];
+const AMP = []; for (let i = 0; i < NB; i++) {
+  let a = 0.35 + 0.45 * Math.abs(Math.sin(i * 0.53)) * (0.6 + 0.4 * hash(i)) + 0.2 * hash(i * 3.1);
+  for (const p of PAUSES) { const d = Math.abs(i - p.i); if (d <= p.w) a = 0.04 + 0.03 * hash(i); else if (d <= p.w + 2) a *= 0.55; }
+  if (i < 2 || i > NB - 3) a *= 0.4; AMP.push(clamp(a, 0.03, 1)); }
+const CALL = [
+  { deg: -40, lab: 'KONUŞMA HIZI', val: '142', unit: 'kel/dk' },
+  { deg: 35, lab: 'DURAKSAMA', val: '0,7', unit: 'sn ort.' },
+  { deg: 145, lab: 'DOLGU SÖZCÜK', val: '2', unit: 'adet' },
+  { deg: 220, lab: 'SES SEVİYESİ', val: '-14', unit: 'dB' },
+];
+const sweepAng = t => -Math.PI / 2 + TAU * eIO(seg(t, T.scan0, T.scan1));
+const passT = deg => { // taramanın o açıyı geçtiği an
+  const f = (((deg + 90) % 360) + 360) % 360 / 360; let lo = 0, hi = 1; for (let k = 0; k < 30; k++) { const m = (lo + hi) / 2; eIO(m) < f ? lo = m : hi = m; }
+  return T.scan0 + lo * (T.scan1 - T.scan0); };
+CALL.forEach(c => c.t = passT(c.deg));
+const L0 = TAU * R2, LF = 1400, YTL = 650;
+const headX = t => lerp(CX - LF / 2, CX + LF / 2, eIO(seg(t, T.head0, T.head1)));
+const barX = i => CX - LF / 2 + (i + 0.5) / NB * LF;
+PAUSES.forEach(p => p.t = lerp(T.head0, T.head1, invIO((barX(p.i) - (CX - LF / 2)) / LF)));
+FILLERS.forEach(p => p.t = lerp(T.head0, T.head1, invIO((barX(p.i) - (CX - LF / 2)) / LF)));
+function invIO(f) { let lo = 0, hi = 1; for (let k = 0; k < 30; k++) { const m = (lo + hi) / 2; eIO(m) < f ? lo = m : hi = m; } return lo; }
+
+window.SFX = [];
+[0.15, 0.27, 0.39, 0.51, 0.63].forEach(t => SFX.push({ t, k: 'tick' }));
+CALL.forEach(c => SFX.push({ t: c.t + 0.28, k: 'blip' }));
+SFX.push({ t: T.done, k: 'ping' }, { t: T.un0, k: 'low' });
+[...PAUSES, ...FILLERS].forEach(p => SFX.push({ t: p.t, k: 'mark' }));
+SFX.push({ t: T.res + 0.05, k: 'chime' }, { t: T.out0, k: 'tick' });
+
+// ── yardımcı çizimler ────────────────────────────────────────────────────────
+function arc(r, a0, a1, lw, col) { if (a1 <= a0) return; ctx.beginPath(); ctx.arc(CX, CY, r, a0, a1); ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.stroke(); }
+function line(x0, y0, x1, y1, lw, col) { ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.lineWidth = lw; ctx.strokeStyle = col; ctx.stroke(); }
+const GLY = 'ABCÇDEFGĞHIİJKLMNOÖPRSŞTUÜVYZ0123456789';
+function decode(str, p, t, seed = 0) {
+  if (p >= 1) return str; if (p <= 0) return '';
+  const n = str.length, shown = Math.ceil(n * clamp(p * 1.4)); let out = '';
+  for (let i = 0; i < shown; i++) { const lock = p > 0.3 + 0.7 * i / n;
+    out += lock || str[i] === ' ' ? str[i] : GLY[Math.floor(hash(i * 13 + Math.floor(t * 24) * 7 + seed) * GLY.length)]; }
+  return out; }
+// ring draw-in / retract: 0..1 görünen yay kesri, retract saat yönünün tersine siler
+function ringVis(t, tin, tout) { return { a: eOut(seg(t, tin, tin + 0.55)), e: eIO(seg(t, tout, tout + 0.45)) }; }
+
+// ── statik katman: nokta ızgarası + vinyet ───────────────────────────────────
+let BG;
+function prep() {
+  BG = mk(W, H); const g = BG.getContext('2d');
+  g.fillStyle = '#05090c'; g.fillRect(0, 0, W, H);
+  const r = g.createRadialGradient(CX, CY, 50, CX, CY, 1100); r.addColorStop(0, 'rgba(40,70,85,0.28)'); r.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = r; g.fillRect(0, 0, W, H);
+  for (let y = 36; y < H; y += 48) for (let x = 24; x < W; x += 48) { g.fillStyle = `rgba(160,208,226,${0.07})`; g.fillRect(x - 1, y - 1, 2, 2); }
+  const v = g.createRadialGradient(CX, CY, 400, CX, CY, 1150); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.55)');
+  g.fillStyle = v; g.fillRect(0, 0, W, H);
+}
+
+// ── çerçeve UI (köşe parantezleri, başlık, zaman kodu) ───────────────────────
+function frameUI(t) {
+  const pin = eBack(seg(t, 0.45, 0.95)), pout = eIn(seg(t, T.out0 + 0.35, T.end - 0.1));
+  const off = (1 - pin) * 60 + pout * 50, a = clamp(pin * 1.2) * (1 - pout);
+  if (a <= 0) return;
+  const x0 = 150 - off, y0 = 110 - off, x1 = W - 150 + off, y1 = H - 110 + off, L = 46;
+  ctx.globalAlpha = a;
+  for (const [x, y, sx, sy] of [[x0, y0, 1, 1], [x1, y0, -1, 1], [x0, y1, 1, -1], [x1, y1, -1, -1]]) {
+    ctx.beginPath(); ctx.moveTo(x, y + sy * L); ctx.lineTo(x, y); ctx.lineTo(x + sx * L, y); ctx.lineWidth = 2; ctx.strokeStyle = ice(0.8); ctx.stroke(); }
+  const pt = seg(t, 0.7, 1.2);
+  F(20, 600, DISP, 5); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = wh(0.95);
+  const h1 = decode('SES ANALİZİ', pt, t, 1); ctx.fillText(h1, 196, 158);
+  const w1 = ctx.measureText('SES ANALİZİ').width;
+  F(14, 300, MONO, 2); ctx.fillStyle = ice(0.7); ctx.fillText(decode('OTURUM 027 · KONU: BİR ŞEHRİ KOKUSUYLA ANLAT', pt, t, 2), 196 + w1 + 22, 157);
+  ctx.textAlign = 'right'; F(15, 400, MONO, 2); ctx.fillStyle = ice(0.8);
+  const tc = Math.max(0, t - 0.7); const fr = Math.floor((tc % 1) * 30);
+  if (pt > 0) ctx.fillText(`T+00:0${Math.floor(tc)}:${String(fr).padStart(2, '0')}`, W - 196, 157);
+  // alt satır: durum
+  ctx.textAlign = 'left'; F(14, 300, MONO, 3); ctx.fillStyle = ice(0.6);
+  const st = t < T.scan0 ? 'SİSTEM HAZIRLANIYOR' : t < T.done ? 'RADYAL TARAMA' : t < T.head0 ? 'ZAMAN EKSENİNE AKTARILIYOR' : t < T.res ? 'DOĞRUSAL TARAMA' : 'ANALİZ TAMAMLANDI';
+  if (pt > 0) ctx.fillText(decode(st, seg(t, 0.8, 1.3), t, 3), 196, H - 146);
+  // sağ alt: küçük seviye çubukları
+  for (let k = 0; k < 16; k++) { const lv = 0.5 + 0.5 * Math.sin(t * 7 + k * 0.9) * hash(k + Math.floor(t * 12)); ctx.fillStyle = ice(0.25 + 0.55 * lv);
+    const h = 4 + 16 * lv; ctx.fillRect(W - 196 - (16 - k) * 7, H - 146 - h, 3, h); }
+  ctx.globalAlpha = 1;
+}
+
+// ── sahne A: radyal analiz ───────────────────────────────────────────────────
+function sceneA(t, un) {           // un: açılma ilerlemesi (halka dışındaki öğeler için solma)
+  const fade = 1 - eOut(seg(t, T.un0 - 0.15, T.un0 + 0.35));
+  if (fade <= 0) return;
+  ctx.save(); ctx.globalAlpha = fade;
+  const rot = t * 0.1;
+  // ince iç halka
+  { const v = ringVis(t, T.ring0, T.un0 - 0.2); arc(R1, -Math.PI / 2 + TAU * v.e, -Math.PI / 2 + TAU * v.a, 1.5, ice(0.7)); }
+  // tick halkası (R3) — dönüyor
+  { const v = ringVis(t, T.ring0 + 0.12, T.un0 - 0.25); const n = 180;
+    for (let k = 0; k < n; k++) { const f = k / n; if (v.a <= 0 || f > v.a || f < v.e) continue; const ang = -Math.PI / 2 + TAU * f + rot * 0.6;
+      const L = k % 15 === 0 ? 16 : k % 5 === 0 ? 10 : 5; const c = Math.cos(ang), s = Math.sin(ang);
+      line(CX + c * R3, CY + s * R3, CX + c * (R3 + L), CY + s * (R3 + L), k % 15 === 0 ? 2 : 1, ice(k % 15 === 0 ? 0.9 : 0.45)); } }
+  // kesikli halka (R4) — ters yönde
+  { const v = ringVis(t, T.ring0 + 0.24, T.un0 - 0.3); const n = 12;
+    for (let k = 0; k < n; k++) { const f0 = k / n, f1 = f0 + 0.058; const a0 = Math.max(f0, v.e), a1 = Math.min(f1, v.a); if (a1 <= a0) continue;
+      arc(R4, -Math.PI / 2 + TAU * a0 - rot, -Math.PI / 2 + TAU * a1 - rot, 1.5, ice(0.6)); } }
+  // dış derece skalası (R5)
+  { const v = ringVis(t, T.ring0 + 0.36, T.un0 - 0.35); arc(R5, -Math.PI / 2 + TAU * v.e, -Math.PI / 2 + TAU * v.a, 1, ice(0.3));
+    F(12, 300, MONO, 1); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    for (let d = 0; d < 360; d += 30) { const f = d / 360; if (v.a <= 0 || f > v.a || f < v.e) continue; const ang = -Math.PI / 2 + d * D2R;
+      if (CALL.some(c => Math.abs(((c.deg - (d - 90)) % 360 + 540) % 360 - 180) < 14)) continue;
+      ctx.fillStyle = ice(0.55); ctx.fillText(String(d).padStart(3, '0'), CX + Math.cos(ang) * (R5 + 20), CY + Math.sin(ang) * (R5 + 20)); } }
+  // segmentli seviye yayları (sol + sağ)
+  { const v = seg(t, 0.7, 1.1); const vo = seg(t, T.un0 - 0.35, T.un0);
+    for (const side of [0, 1]) { const base = side ? 0 : Math.PI; const lvl = 0.35 + 0.55 * Math.abs(Math.sin(t * (side ? 3.1 : 2.3) + side));
+      for (let k = 0; k < 18; k++) { const f = k / 17; if (v <= 0 || f > v || f < vo) continue; const a0 = base - 22 * D2R + f * 44 * D2R;
+        arc(362, a0, a0 + 1.6 * D2R, 8, f < lvl ? ice(0.85) : ice(0.18)); } } }
+  // artı işareti
+  { const p = eOut(seg(t, 0.3, 0.85)), q = eIO(seg(t, T.un0 - 0.4, T.un0)); const r0 = R1 + 12, r1 = lerp(r0, R5 + 70, p * (1 - q));
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) line(CX + dx * r0, CY + dy * r0, CX + dx * r1, CY + dy * r1, 1, ice(0.35)); }
+  // radar izi (konik degrade) + tarama çizgisi
+  if (t > T.scan0 && t < T.scan1 + 0.3) {
+    const sw = sweepAng(t), fa = 1 - seg(t, T.scan1, T.scan1 + 0.3);
+    const g = ctx.createConicGradient(sw - 0.9, CX, CY); g.addColorStop(0, ice(0)); g.addColorStop(0.9 / TAU, ice(0.13 * fa)); g.addColorStop(0.9 / TAU + 0.001, ice(0)); g.addColorStop(1, ice(0));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(CX, CY, R4, 0, TAU); ctx.arc(CX, CY, R1, 0, TAU, true); ctx.fill();
+    line(CX + Math.cos(sw) * R1, CY + Math.sin(sw) * R1, CX + Math.cos(sw) * R4, CY + Math.sin(sw) * R4, 1.5, wh(0.9 * fa)); }
+  // halka tamamlandı "ping"
+  if (t > T.done && t < T.done + 0.6) { const p = eOut(seg(t, T.done, T.done + 0.6)); arc(lerp(R1, R5 + 40, p), 0, TAU, 1.2, wh(0.6 * (1 - p))); }
+  // merkez sayaç
+  { const a = seg(t, T.scan0 - 0.2, T.scan0 + 0.1) * (1 - seg(t, T.un0 - 0.2, T.un0 + 0.1));
+    if (a > 0) { ctx.globalAlpha = fade * a; const pct = Math.round(100 * seg(t, T.scan0, T.scan1));
+      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      F(62, 500, DISP, 0); ctx.fillStyle = WH; ctx.fillText('%' + pct, CX, CY + 18);
+      F(13, 300, MONO, 3); ctx.fillStyle = ice(0.75); ctx.fillText(t < T.done ? 'TARANIYOR' : 'TAMAM', CX, CY + 48);
+      ctx.globalAlpha = fade; } }
+  // çağrı etiketleri
+  for (const c of CALL) callout(c, t);
+  ctx.restore();
+}
+function callout(c, t) {
+  const p = seg(t, c.t, c.t + 0.35), q = eIO(seg(t, T.un0 - 0.45 + c.deg / 2000, T.un0 - 0.1));
+  if (p <= 0) return;
+  const ang = c.deg * D2R, cs = Math.cos(ang), sn = Math.sin(ang), right = cs > 0;
+  const sx = CX + cs * (R4 + 14), sy = CY + sn * (R4 + 14), ex = sx + cs * 64, ey = sy + sn * 64, hx = ex + (right ? 1 : -1) * 250;
+  const p1 = eOut(seg(p, 0, 0.45)), p2 = eOut(seg(p, 0.35, 1)); const vis = 1 - q;
+  if (vis <= 0) return; ctx.save(); ctx.globalAlpha *= vis;
+  ctx.fillStyle = WH; ctx.beginPath(); ctx.arc(sx, sy, 3.2 * eBack(seg(p, 0, 0.5)), 0, TAU); ctx.fill();
+  line(sx, sy, lerp(sx, ex, p1), lerp(sy, ey, p1), 1.2, ice(0.8));
+  if (p2 > 0) { line(ex, ey, lerp(ex, hx, p2), ey, 1.2, ice(0.8)); line(lerp(ex, hx, p2), ey - 5, lerp(ex, hx, p2), ey + 5, 1.2, ice(0.8)); }
+  const tp = seg(t, c.t + 0.15, c.t + 0.7);
+  ctx.textAlign = right ? 'left' : 'right'; ctx.textBaseline = 'alphabetic';
+  const tx = right ? ex + 12 : ex - 12;
+  F(14, 300, MONO, 3); ctx.fillStyle = ice(0.85); ctx.fillText(decode(c.lab, tp, t, c.deg), tx, ey + 26);
+  const vp = seg(t, c.t + 0.3, c.t + 0.75);
+  if (vp > 0) { F(42, 500, DISP, 0); ctx.fillStyle = WH; const v = decode(c.val, vp, t, c.deg + 5);
+    const unitW = (() => { F(15, 500, DISP, 1); return ctx.measureText(' ' + c.unit).width + 6; })();
+    F(42, 500, DISP, 0); const vw = ctx.measureText(v).width;
+    if (right) { ctx.fillText(v, tx, ey - 12); F(15, 500, DISP, 1); ctx.fillStyle = ice(0.8); ctx.fillText(' ' + c.unit, tx + vw, ey - 12); }
+    else { F(15, 500, DISP, 1); ctx.fillStyle = ice(0.8); ctx.fillText(' ' + c.unit, tx, ey - 12); F(42, 500, DISP, 0); ctx.fillStyle = WH; ctx.fillText(v, tx - unitW, ey - 12); } }
+  ctx.restore();
+}
+
+// ── ses halkası ↔ zaman çizgisi (yay uzunluğunu koruyan açılma) ─────────────
+function spectrum(t) {
+  const p = eIO(seg(t, T.un0, T.un1));                    // eğrilik 1/R → 0
+  const pp = eIO(seg(t, T.un0 + 0.35, T.un1 + 0.15));     // uzama + aşağı kayma
+  const inA = seg(t, 0.4, 0.95);
+  const outP = seg(t, T.out0, T.out0 + 0.7);
+  const kap = (1 - p) / R2, ytop = lerp(CY - R2, YTL, pp), sc = lerp(1, LF / L0, pp);
+  const sw = sweepAng(t), sweeping = t < T.scan1 + 0.05;
+  const hx = headX(t);
+  // taban çizgisi
+  const pts = [];
+  for (let k = 0; k <= 240; k++) { const s = (k / 240 - 0.5) * L0 * sc; pts.push(pos(s, kap, ytop, sc)); }
+  const baseA = inA * (1 - outP);
+  if (baseA > 0) { ctx.beginPath(); const lim = 1 - eIO(outP);
+    let first = true; for (let k = 0; k <= 240; k++) { const f = Math.abs(k / 240 - 0.5) * 2; if (f > lim) continue; const [x, y] = pts[k]; first ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first = false; }
+    // yay çizimi halkada girişte saat yönünde
+    ctx.lineWidth = 1.2; ctx.strokeStyle = ice(0.55 * (t < 1 ? inA : 1)); if (t > 0.4) ctx.stroke(); }
+  for (let i = 0; i < NB; i++) {
+    const s = ((i + 0.5) / NB - 0.5) * L0 * sc; const [x, y, nx, ny] = pos(s, kap, ytop, sc);
+    // halkada: taramanın geçtiği yerde belirir
+    const angA = Math.PI / 2 + TAU * (i + 0.5) / NB;   // alt → sol → üst → sağ
+    const rel = ((angA + Math.PI / 2) % TAU + TAU) % TAU;           // üstten saat yönünde
+    const swept = sweeping ? clamp(((sw + Math.PI / 2) - rel) / 0.25) : 1;
+    let live = AMP[i] * (0.72 + 0.28 * Math.sin(t * 5.5 + i * 0.8)); live = lerp(live, AMP[i], p);
+    const di = 1 - Math.abs(i / NB - 0.5) * 2; const shrink = 1 - eIO(seg(outP, di * 0.5, di * 0.5 + 0.5));
+    const len = (6 + lerp(70, 92, pp) * live) * swept * shrink, inw = lerp(0.12, 1, p);
+    if (len <= 0.5) continue;
+    const scanned = t > T.head0 && x < hx;
+    const col = scanned ? wh(0.92) : ice(t > T.un1 ? 0.5 : 0.8);
+    ctx.lineWidth = lerp(3, 5, pp); ctx.strokeStyle = col; ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(x - nx * len * inw, y - ny * len * inw); ctx.lineTo(x + nx * len, y + ny * len); ctx.stroke();
+  }
+}
+function pos(s, kap, ytop, sc) {
+  const k = kap / sc;    // uzamayla birlikte eğrilik de yayılır
+  if (k < 1e-7) return [CX + s, ytop, 0, -1];
+  const ph = s * k; return [CX + Math.sin(ph) / k, ytop + (1 - Math.cos(ph)) / k, Math.sin(ph), -Math.cos(ph)];
+}
+
+// ── sahne B: doğrusal tarama ─────────────────────────────────────────────────
+function sceneB(t) {
+  if (t < T.un1 - 0.1) return;
+  const outP = seg(t, T.out0, T.out0 + 0.6); const A = 1 - eIn(outP);
+  ctx.save(); ctx.globalAlpha = A;
+  const x0 = CX - LF / 2, x1 = CX + LF / 2, yAx = YTL + 118;
+  // zaman ekseni
+  const ap = eOut(seg(t, T.un1 - 0.05, T.un1 + 0.45));
+  line(x0, yAx, lerp(x0, x1, ap), yAx, 1, ice(0.35));
+  F(13, 300, MONO, 2); ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let k = 0; k <= 12; k++) { const x = lerp(x0, x1, k / 12); const tk = seg(t, T.un1 + k * 0.03, T.un1 + 0.2 + k * 0.03); if (tk <= 0) continue;
+    line(x, yAx, x, yAx + (k % 3 === 0 ? 12 : 6) * tk, 1, ice(0.5));
+    if (k % 3 === 0) { ctx.fillStyle = ice(0.6 * tk); ctx.fillText(`${k * 5} SN`, x, yAx + 20); } }
+  // tarama kafası
+  if (t > T.head0 - 0.15 && t < T.head1 + 0.35) {
+    const hx = headX(t), a = seg(t, T.head0 - 0.15, T.head0) * (1 - seg(t, T.head1, T.head1 + 0.35));
+    ctx.globalAlpha = A * a; line(hx, YTL - 120, hx, yAx, 1.5, wh(0.95));
+    ctx.fillStyle = WH; ctx.beginPath(); ctx.moveTo(hx - 7, YTL - 132); ctx.lineTo(hx + 7, YTL - 132); ctx.lineTo(hx, YTL - 122); ctx.closePath(); ctx.fill();
+    F(14, 400, MONO, 1); ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = wh(0.9);
+    const secs = ((hx - x0) / LF * 60).toFixed(1).replace('.', ','); ctx.fillText(secs + ' sn', hx + 10, YTL - 124);
+    ctx.globalAlpha = A; }
+  // işaretler
+  for (const p of PAUSES) marker(t, p, 'pause'); for (const f of FILLERS) marker(t, f, 'fill');
+  // sayaçlar
+  const cp = eOut(seg(t, T.un1, T.un1 + 0.4));
+  if (cp > 0) { ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    const nP = PAUSES.filter(p => t >= p.t).length, nF = FILLERS.filter(p => t >= p.t).length;
+    [['DURAKSAMA', nP], ['DOLGU SÖZCÜK', nF]].forEach(([lab, n], k) => { const x = x0 + k * 230, y = YTL - 300 + (1 - cp) * 14;
+      ctx.globalAlpha = A * cp; F(14, 300, MONO, 3); ctx.fillStyle = ice(0.75); ctx.fillText(lab, x, y);
+      F(40, 500, DISP, 0); ctx.fillStyle = WH; ctx.fillText(String(n).padStart(2, '0'), x, y + 44); });
+    ctx.globalAlpha = A; }
+  // sonuç
+  if (t > T.res) {
+    const rp = seg(t, T.res, T.res + 0.7), n = Math.round(87 * eOut(rp)); const a = eOut(seg(t, T.res, T.res + 0.25));
+    const rx = x1; ctx.globalAlpha = A * a; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
+    F(14, 300, MONO, 3); ctx.fillStyle = ice(0.8); ctx.fillText('AKICILIK', rx, YTL - 300);
+    F(112, 500, DISP, 0); ctx.fillStyle = WH; const nw = (() => { F(22, 500, DISP, 0); return ctx.measureText('/100').width; })();
+    F(22, 500, DISP, 0); ctx.fillStyle = ice(0.7); ctx.fillText('/100', rx, YTL - 196);
+    F(112, 500, DISP, 0); ctx.fillStyle = WH; ctx.fillText(String(n), rx - nw - 8, YTL - 196);
+    const gw = 360, gp = eOut(seg(t, T.res + 0.1, T.res + 0.8)) * 0.87;
+    ctx.fillStyle = ice(0.18); ctx.fillRect(rx - gw, YTL - 176, gw, 3); ctx.fillStyle = WH; ctx.fillRect(rx - gw, YTL - 176, gw * gp, 3);
+    for (let k = 0; k <= 10; k++) ctx.fillRect(rx - gw + gw * k / 10 - 0.5, YTL - 182, 1, 3);
+    ctx.globalAlpha = A; }
+  ctx.restore();
+}
+function marker(t, m, kind) {
+  if (t < m.t) return; const p = seg(t, m.t, m.t + 0.35); const x = barX(m.i);
+  const y = YTL - 96, lp = eOut(p);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  if (kind === 'pause') { const w = (m.w * 2 + 1) / NB * LF / 2 * eBack(p);
+    ctx.beginPath(); ctx.moveTo(x - w, y + 8); ctx.lineTo(x - w, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + 8); ctx.lineWidth = 1.2; ctx.strokeStyle = wh(0.9); ctx.stroke();
+    line(x, y, x, y - 10 * lp, 1, wh(0.9));
+    F(15, 400, MONO, 1); ctx.fillStyle = wh(lp); ctx.fillText(decode(m.lab, seg(t, m.t + 0.05, m.t + 0.4), t, m.i), x, y - 18); }
+  else { const s = 7 * eBack(p); ctx.fillStyle = WH; ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); ctx.fill();
+    line(x, y + 10, x, lerp(y + 10, YTL - 12, lp), 1, ice(0.6));
+    F(20, 500, DISP, 1); ctx.fillStyle = wh(lp); ctx.fillText(m.lab, x, y - 16); }
+}
+// son: merkez nokta
+function endDot(t) {
+  const a = t < 1 ? eOut(seg(t, 0, 0.25)) * (1 - seg(t, 0.45, 0.7)) : t > T.out0 + 0.4 ? seg(t, T.out0 + 0.4, T.out0 + 0.6) * (1 - eOut(seg(t, T.out0 + 0.7, T.end))) : 0;
+  if (a <= 0) return; const y = t < 1 ? CY : YTL; ctx.globalAlpha = a; ctx.fillStyle = WH; ctx.beginPath(); ctx.arc(CX, y, 3.5, 0, TAU); ctx.fill();
+  line(CX - 14, y, CX - 6, y, 1, ice(0.8)); line(CX + 6, y, CX + 14, y, 1, ice(0.8)); ctx.globalAlpha = 1;
+}
+
+function render(t) {
+  ctx.globalAlpha = 1; ctx.drawImage(BG, 0, 0);
+  ctx.lineCap = 'butt';
+  sceneA(t);
+  spectrum(t);
+  sceneB(t);
+  frameUI(t);
+  endDot(t);
+  // giriş/çıkış kararması
+  const fadeIn = 1 - seg(t, 0, 0.35), fadeOut = seg(t, T.end - 0.25, DUR - 0.02);
+  const k = Math.max(fadeIn * 0.85, fadeOut * 0.9); if (k > 0) { ctx.fillStyle = `rgba(3,6,8,${k})`; ctx.fillRect(0, 0, W, H); }
+}
+window.draw = function (job) { render(job.t); return cv.toDataURL('image/jpeg', job.q || 0.92).split(',')[1]; };
+window.ready = document.fonts.ready.then(() => Promise.all([
+  document.fonts.load(`500 40px 'Chakra Petch'`, 'AKICILIKŞÜĞİÖÇ0123'), document.fonts.load(`600 40px 'Chakra Petch'`, 'AKICILIKŞÜĞİÖÇ'),
+  document.fonts.load(`300 12px 'Martian Mono'`, 'AKIŞÜĞİÖÇ0123'), document.fonts.load(`400 12px 'Martian Mono'`, 'AKIŞÜĞİÖÇ0123')])).then(prep);
+</script></body></html>

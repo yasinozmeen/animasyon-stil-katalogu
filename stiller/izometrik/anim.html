@@ -1,0 +1,361 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style id="fonts">
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url(fonts/spacegrotesk_v22_V8mDoQDjQSkFtoMM3T6r8E7mPb94C_k3HqUtEw.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 500;
+  font-display: block;
+  src: url(fonts/spacegrotesk_v22_V8mDoQDjQSkFtoMM3T6r8E7mPbF4C_k3HqU.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url(fonts/spacegrotesk_v22_V8mDoQDjQSkFtoMM3T6r8E7mPb94C_k3HqUtEw.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url(fonts/spacegrotesk_v22_V8mDoQDjQSkFtoMM3T6r8E7mPbF4C_k3HqU.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<style>html,body{margin:0;background:#efe4d6}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script>
+// İzometrik minyatür dünya: bir konuşma stüdyosu parça parça kurulur, kamera geri çekilir → her konu küçük bir dünya.
+const W = 1920, H = 1080, cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const DUR = 9.5, FF = "'Space Grotesk', sans-serif";
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const eOut = x => 1 - Math.pow(1 - x, 3), eIn = x => x * x * x;
+const eInOut = x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+const eBack = (x, s = 1.7) => { const c = s + 1; return 1 + c * Math.pow(x - 1, 3) + s * Math.pow(x - 1, 2); };
+function off(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+function hexRgb(h) { if (h[0] !== '#') return h.match(/[\d.]+/g).slice(0, 3).map(Number); const n = parseInt(h.slice(1), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+function mix(a, b, k) { const A = hexRgb(a), B = hexRgb(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * k)).join(',')})`; }
+const DARK = '#3b2946';
+const sh = (c, k) => mix(c, DARK, k);
+
+// ---------- iso camera ----------
+let S = 46, OX = 960, OY = 560; const CAM = { x: 5, y: 5, z: 2.5 };
+let OT = null, TILE = { ox: 0, oy: 0, dz: 0 };
+const CS = 0.8660254;
+function P(x, y, z) {
+  if (OT) { x = OT.cx + (x - OT.cx) * OT.sxy; y = OT.cy + (y - OT.cy) * OT.sxy; z = OT.zb + (z - OT.zb) * OT.sz + OT.dz; }
+  x += TILE.ox - CAM.x; y += TILE.oy - CAM.y; z += TILE.dz - CAM.z;
+  return [OX + (x - y) * CS * S, OY + (x + y) * 0.5 * S - z * S];
+}
+function poly(pts, fill) { ctx.fillStyle = fill; ctx.beginPath(); pts.forEach((p, i) => { const q = P(...p); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); }); ctx.closePath(); ctx.fill(); }
+function box(x0, y0, z0, x1, y1, z1, c, faces = {}) {
+  const top = faces.top || c, left = faces.left || sh(c, 0.16), right = faces.right || sh(c, 0.34);
+  poly([[x0, y1, z1], [x1, y1, z1], [x1, y1, z0], [x0, y1, z0]], left);   // +y face
+  poly([[x1, y0, z1], [x1, y1, z1], [x1, y1, z0], [x1, y0, z0]], right);  // +x face
+  poly([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], top);
+  if (!faces.noEdge) { // crisp light edge on the two front top edges — the "maket" bevel
+    const a = P(x0, y1, z1), b = P(x1, y1, z1), d = P(x1, y0, z1);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = Math.max(1, S * 0.03); ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.lineTo(d[0], d[1]); ctx.stroke();
+  }
+}
+function scl() { return S * (OT ? OT.sxy : 1); }
+function cyl(cx, cy, z0, z1, r, c) {
+  const k = scl(), zs = OT ? OT.sz : 1, rx = r * k * 1.2247, ry = r * k * 0.7071;
+  const b = P(cx, cy, z0), tp = P(cx, cy, z1);
+  const g = ctx.createLinearGradient(b[0] - rx, 0, b[0] + rx, 0); g.addColorStop(0, sh(c, 0.1)); g.addColorStop(1, sh(c, 0.4));
+  ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(tp[0] - rx, tp[1]); ctx.lineTo(b[0] - rx, b[1]); ctx.ellipse(b[0], b[1], rx, ry, 0, Math.PI, 0, true); ctx.lineTo(tp[0] + rx, tp[1]); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = c; ctx.beginPath(); ctx.ellipse(tp[0], tp[1], rx, ry, 0, 0, 7); ctx.fill();
+}
+function sphere(x, y, z, r, c) {
+  const p = P(x, y, z), R = r * scl() * 1.2247;
+  ctx.fillStyle = c; ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, 7); ctx.fill();
+  ctx.save(); ctx.beginPath(); ctx.arc(p[0], p[1], R, 0, 7); ctx.clip();
+  ctx.fillStyle = sh(c, 0.3); ctx.beginPath(); ctx.rect(p[0] - R, p[1] - R, 2 * R, 2 * R); ctx.moveTo(p[0] - R * 0.25 + R * 1.05, p[1] - R * 0.3); ctx.arc(p[0] - R * 0.25, p[1] - R * 0.3, R * 1.05, 0, Math.PI * 2, true); ctx.fill('evenodd');
+  ctx.restore();
+}
+function cone(cx, cy, z0, z1, r, c) {
+  const k = scl(), rx = r * k * 1.2247, ry = r * k * 0.7071, b = P(cx, cy, z0), tp = P(cx, cy, z1);
+  ctx.fillStyle = sh(c, 0.3); ctx.beginPath(); ctx.moveTo(tp[0], tp[1]); ctx.lineTo(b[0] - rx, b[1]); ctx.ellipse(b[0], b[1], rx, ry, 0, Math.PI, 0, true); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(tp[0], tp[1]); ctx.lineTo(b[0] - rx, b[1]); ctx.ellipse(b[0], b[1], rx, ry, 0, Math.PI, Math.PI * 0.62, true); ctx.closePath(); ctx.fill();
+}
+// draw 2D content onto a plane: origin o, unit vectors u (right), v (down) in world coords; 100 local px = 1 world unit
+function onFace(o, u, v, fn) {
+  const p0 = P(...o), pu = P(o[0] + u[0], o[1] + u[1], o[2] + u[2]), pv = P(o[0] + v[0], o[1] + v[1], o[2] + v[2]);
+  ctx.save(); ctx.transform((pu[0] - p0[0]) / 100, (pu[1] - p0[1]) / 100, (pv[0] - p0[0]) / 100, (pv[1] - p0[1]) / 100, p0[0], p0[1]); fn(); ctx.restore();
+}
+function shadow(x0, y0, x1, y1, h, z = 0, a = 0.16) { // crisp floor shadow, light from upper-left
+  const L = h * 0.42;
+  poly([[x0 + 0.1, y0 + 0.15, z], [x1 + 0.1, y0 + 0.15, z], [x1 + L, y0 + 0.15 + L * 0.35, z], [x1 + L, y1 + 0.15 + L * 0.35, z], [x0 + L, y1 + 0.15 + L * 0.35, z], [x0 + 0.1, y1 + 0.15, z]], `rgba(70,40,60,${a})`);
+}
+// per-object drop animation: falls from above, squashes on landing, settles
+function drop(t, t0, o, dur = 0.42) {
+  const p = seg(t, t0, t0 + dur); if (p <= 0) return null;
+  const land = t - (t0 + dur); let dz = (1 - p * p) * 11, sq = 0;
+  if (land > 0) sq = Math.exp(-land * 9) * Math.sin(land * 26) * 0.16;
+  return { cx: o[0], cy: o[1], zb: o[2], dz, sxy: 1 + sq * 0.5, sz: 1 - sq, alpha: clamp(p * 4) };
+}
+function withOT(o, fn) { if (!o) return; const prev = OT; OT = o; ctx.globalAlpha = o.alpha ?? 1; fn(); ctx.globalAlpha = 1; OT = prev; }
+
+// ---------- palette ----------
+const PAL = { bg: '#efe4d6', wood: '#e9b07c', slab: '#d69a68', wallA: '#86c3c3', wallB: '#a9d7cf', rug: '#ef7a63', desk: '#f5efe6', chair: '#f2b544',
+  shelf: '#c98a5c', laptop: '#c9ccd8', screen: '#23263b', mic: '#3b3f58', lamp: '#ff8a6b', plant: '#5fb07a', pot: '#e7d6c3', coral: '#ff7b6b', cream: '#fff6ea', ink: '#23263b' };
+
+// ---------- the studio room ----------
+function room(t, local) {
+  const T = local; // time relative to clip
+  // floor slab rises
+  const sP = seg(T, 0.15, 0.85); if (sP <= 0) return;
+  withOT({ cx: 5, cy: 5, zb: 0, dz: -(1 - eBack(sP, 1.3)) * 9, sxy: 1, sz: 1, alpha: clamp(sP * 3) }, () => {
+    box(-0.5, -0.5, -0.8, 10, 10, 0, PAL.wood, { left: sh(PAL.slab, 0.1), right: sh(PAL.slab, 0.3) });
+    ctx.save(); ctx.strokeStyle = 'rgba(120,70,40,0.16)'; ctx.lineWidth = S * 0.035;
+    for (let y = 1.25; y < 10; y += 1.25) { const a = P(-0.5, y, 0), b = P(10, y, 0); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+    ctx.restore();
+  });
+  // walls grow upward
+  const wP = eBack(seg(T, 0.6, 1.15), 1.4);
+  if (wP > 0) withOT({ cx: 5, cy: 5, zb: 0, dz: 0, sxy: 1, sz: wP, alpha: 1 }, () => {
+    box(-0.5, -0.5, 0, 0, 10, 6.5, PAL.wallA, { right: PAL.wallA, left: sh(PAL.wallA, 0.3), top: '#f7efe4' });
+    box(0, -0.5, 0, 10, 0, 6.5, PAL.wallB, { left: PAL.wallB, right: sh(PAL.wallB, 0.3), top: '#f7efe4' });
+    // skirting
+    poly([[0.01, 0, 0], [0.01, 10, 0], [0.01, 10, 0.35], [0.01, 0, 0.35]], sh(PAL.wallA, 0.12));
+    poly([[0, 0.01, 0], [10, 0.01, 0], [10, 0.01, 0.35], [0, 0.01, 0.35]], sh(PAL.wallB, 0.1));
+  });
+  // window on wall A (slides open)
+  const winP = eOut(seg(T, 1.05, 1.5));
+  if (winP > 0) onFace([0.02, 7.2, 5.9], [0, -1, 0], [0, 0, -1], () => {
+    const w = 380 * winP, x0 = (380 - w) / 2;
+    ctx.fillStyle = PAL.cream; ctx.beginPath(); ctx.roundRect(x0 - 16, -16, w + 32, 232, 22); ctx.fill();
+    const g = ctx.createLinearGradient(0, 0, 0, 200); g.addColorStop(0, '#8fd0f0'); g.addColorStop(1, '#cfeefa');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.roundRect(x0, 0, w, 200, 12); ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.roundRect(x0, 0, w, 200, 12); ctx.clip();
+    ctx.fillStyle = '#ffd36b'; ctx.beginPath(); ctx.arc(290, 62, 34, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ffffff'; const cxo = ((T * 22) % 520) - 120; ctx.beginPath(); ctx.roundRect(cxo, 110, 130, 34, 17); ctx.roundRect(cxo + 30, 88, 64, 40, 20); ctx.fill();
+    ctx.fillStyle = '#9bd08a'; ctx.beginPath(); ctx.ellipse(120, 215, 200, 50, 0, 0, 7); ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = PAL.cream; ctx.fillRect(x0 + w / 2 - 7, 0, 14, 200);
+  });
+  // wall timer on wall B
+  const tmP = eBack(seg(T, 2.55, 2.95));
+  if (tmP > 0) onFace([3.2, 0.03, 5.4], [1, 0, 0], [0, 0, -1], () => {
+    ctx.save(); ctx.scale(tmP, tmP);
+    ctx.fillStyle = 'rgba(60,40,60,0.18)'; ctx.beginPath(); ctx.arc(10, 10, 100, 0, 7); ctx.fill();
+    ctx.fillStyle = PAL.cream; ctx.beginPath(); ctx.arc(0, 0, 100, 0, 7); ctx.fill();
+    const rem = 1 - clamp((T - 3.2) / 2.3) * 0.28;
+    ctx.fillStyle = PAL.coral; ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 82, -Math.PI / 2, -Math.PI / 2 + rem * Math.PI * 2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = PAL.cream; ctx.beginPath(); ctx.arc(0, 0, 58, 0, 7); ctx.fill();
+    ctx.fillStyle = PAL.ink; ctx.font = `700 60px ${FF}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(Math.max(43, 60 - Math.floor(Math.max(0, T - 3.2) * 7.4))), 0, 4);
+    ctx.restore();
+  });
+  // shelf with books (on wall B)
+  withOT(drop(T, 1.35, [7.3, 0.6, 0]), () => {
+    shadow(5.6, 0, 9, 1.2, 5.2, 0, 0.12);
+    box(5.6, 0, 0, 9, 1.2, 5.2, PAL.shelf);
+    for (const z of [0.25, 1.9, 3.55]) poly([[5.8, 1.21, z], [8.8, 1.21, z], [8.8, 1.21, z + 1.35], [5.8, 1.21, z + 1.35]], sh(PAL.shelf, 0.55));
+  });
+  const bookCols = ['#ff7b6b', '#f2b544', '#5fb07a', '#6d8bd8', '#a77bd6', '#86c3c3', '#ff9fb2'];
+  let bi = 0;
+  for (const z of [0.25, 1.9, 3.55]) { let x = 5.9;
+    for (let k = 0; k < 6; k++) { const w = 0.3 + ((bi * 37) % 5) * 0.06, h = 0.85 + ((bi * 53) % 4) * 0.12, col = bookCols[bi % 7];
+      if (x + w > 8.7) break;
+      const p = drop(T, 1.85 + bi * 0.045, [x + w / 2, 0.9, z], 0.28);
+      withOT(p, () => box(x, 0.55, z, x + w, 1.18, z + h, col, { noEdge: true }));
+      x += w + 0.04; bi++; } }
+  // rug unrolls
+  const rP = eOut(seg(T, 1.0, 1.5));
+  if (rP > 0) { const x1 = 3.4 + 5.6 * rP;
+    poly([[3.4, 3.2, 0.02], [x1, 3.2, 0.02], [x1, 9.2, 0.02], [3.4, 9.2, 0.02]], PAL.rug);
+    for (const y of [4.0, 8.4]) poly([[3.4, y, 0.03], [x1, y, 0.03], [x1, y + 0.3, 0.03], [3.4, y + 0.3, 0.03]], '#ffd2a8');
+    if (rP < 1) box(x1 - 0.25, 3.2, 0.02, x1 + 0.25, 9.2, 0.45, sh(PAL.rug, 0.05), { noEdge: true }); }
+  // desk
+  const deskO = drop(T, 1.25, [1.9, 4.7, 0]);
+  withOT(deskO, () => {
+    shadow(0.4, 1.4, 3.4, 8, 3.2, 0, 0.14);
+    for (const [x, y] of [[0.5, 1.5], [3.0, 1.5], [0.5, 7.6], [3.0, 7.6]]) box(x, y, 0, x + 0.3, y + 0.3, 2.95, sh(PAL.desk, 0.12), { noEdge: true });
+    box(0.3, 1.3, 2.95, 3.4, 8.1, 3.3, PAL.desk);
+  });
+  // laptop: base drops, then the lid opens on its hinge
+  const lapO = drop(T, 1.7, [2.0, 4.9, 3.3], 0.36);
+  withOT(lapO, () => {
+    shadow(1.0, 3.3, 3.0, 6.5, 0.2, 3.31, 0.12);
+    box(1.0, 3.3, 3.3, 3.0, 6.5, 3.45, PAL.laptop);
+    poly([[1.4, 3.7, 3.451], [2.7, 3.7, 3.451], [2.7, 6.1, 3.451], [1.4, 6.1, 3.451]], sh(PAL.laptop, 0.12));
+    const op = eBack(seg(T, 2.2, 2.75), 1.2), phi = op * Math.PI * 0.56, L = 2.2;
+    const d = [Math.cos(phi), 0, Math.sin(phi)], hz = 3.45, hx = 1.0;
+    const q = (y, s2) => [hx + d[0] * L * s2, y, hz + d[2] * L * s2];
+    // back of lid (visible while flat), then screen face
+    poly([q(3.3, 0), q(6.5, 0), q(6.5, 1), q(3.3, 1)], phi < 1.2 ? PAL.laptop : sh(PAL.laptop, 0.3));
+    if (phi > 0.9) {
+      const inset = 0.12;
+      poly([[hx + d[0] * L * 0.04 + 0.01, 3.3 + inset, hz + d[2] * L * 0.04], [hx + d[0] * L * 0.04 + 0.01, 6.5 - inset, hz + d[2] * L * 0.04], [hx + d[0] * L * 0.96 + 0.01, 6.5 - inset, hz + d[2] * L * 0.96], [hx + d[0] * L * 0.96 + 0.01, 3.3 + inset, hz + d[2] * L * 0.96]], PAL.screen);
+      const on = seg(T, 2.8, 3.1);
+      onFace([hx + d[0] * L * 0.96 + 0.02, 6.35, hz + d[2] * L * 0.96], [0, -1, 0], [-d[0], 0, -d[2]], () => {
+        ctx.globalAlpha = on;
+        ctx.fillStyle = '#ff7b6b'; ctx.beginPath(); ctx.arc(22, 20, 7, 0, 7); ctx.fill();
+        ctx.fillStyle = '#f2b544'; ctx.beginPath(); ctx.arc(42, 20, 7, 0, 7); ctx.fill();
+        ctx.fillStyle = '#5fb07a'; ctx.beginPath(); ctx.arc(62, 20, 7, 0, 7); ctx.fill();
+        ctx.font = `700 26px ${FF}`; ctx.fillStyle = '#f2b544'; ctx.textBaseline = 'alphabetic'; ctx.letterSpacing = '4px'; ctx.fillText('KONU', 22, 78); ctx.letterSpacing = '0px';
+        const txt = 'Uzay turizmi', n = Math.floor(clamp((T - 3.25) / 0.9) * txt.length);
+        ctx.font = `700 44px ${FF}`; ctx.fillStyle = '#fff6ea'; ctx.fillText(txt.slice(0, n), 22, 132);
+        const cw = ctx.measureText(txt.slice(0, n)).width;
+        if ((T * 2.4) % 1 < 0.6) { ctx.fillStyle = '#86c3c3'; ctx.fillRect(26 + cw, 100, 5, 38); }
+        ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.beginPath(); ctx.roundRect(22, 160, 250, 12, 6); ctx.fill();
+        ctx.fillStyle = '#86c3c3'; ctx.beginPath(); ctx.roundRect(22, 160, 250 * clamp((T - 3.3) / 2.2), 12, 6); ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+    }
+  });
+  // desk lamp
+  withOT(drop(T, 2.0, [0.9, 2.1, 3.3], 0.36), () => {
+    cyl(0.9, 2.1, 3.3, 3.45, 0.45, PAL.lamp);
+    box(0.82, 2.02, 3.45, 0.98, 2.18, 5.0, sh(PAL.lamp, 0.2), { noEdge: true });
+    cone(1.25, 2.4, 4.45, 5.25, 0.5, PAL.lamp);
+  });
+  const lampOn = seg(T, 3.05, 3.15) * (1 - seg(T, 99, 99));
+  if (lampOn > 0) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = lampOn * 0.22;
+    poly([[1.15, 2.3, 4.5], [1.35, 2.5, 4.5], [2.7, 4.2, 3.31], [1.6, 3.1, 3.31], [0.6, 3.0, 3.31]], '#ffd08a');
+    const c = P(1.9, 3.1, 3.32); const g = ctx.createRadialGradient(c[0], c[1], 0, c[0], c[1], S * 1.8); g.addColorStop(0, 'rgba(255,210,140,0.9)'); g.addColorStop(1, 'rgba(255,210,140,0)');
+    ctx.fillStyle = g; ctx.fillRect(c[0] - S * 2, c[1] - S * 2, S * 4, S * 4); ctx.restore(); }
+  // microphone
+  withOT(drop(T, 2.1, [2.6, 7.5, 3.3], 0.36), () => {
+    shadow(2.2, 7.1, 3.0, 7.9, 1.6, 3.31, 0.12);
+    cyl(2.6, 7.5, 3.3, 3.42, 0.42, PAL.mic);
+    box(2.55, 7.45, 3.42, 2.65, 7.55, 4.4, sh(PAL.mic, 0.1), { noEdge: true });
+    cyl(2.6, 7.5, 4.4, 5.2, 0.3, PAL.mic);
+    sphere(2.6, 7.5, 5.25, 0.3, '#8f96b8');
+    cyl(2.6, 7.5, 4.62, 4.72, 0.31, PAL.coral);
+  });
+  // chair
+  withOT(drop(T, 1.5, [4.6, 4.8, 0]), () => {
+    shadow(3.9, 3.9, 5.5, 5.7, 4.2, 0, 0.14);
+    for (const [x, y] of [[4.0, 4.0], [5.1, 4.0], [4.0, 5.3], [5.1, 5.3]]) box(x, y, 0, x + 0.25, y + 0.25, 1.8, sh(PAL.chair, 0.25), { noEdge: true });
+    box(3.9, 3.9, 1.8, 5.5, 5.7, 2.1, PAL.chair);
+    box(5.2, 3.9, 2.1, 5.5, 5.7, 4.3, PAL.chair);
+  });
+  // plant
+  withOT(drop(T, 2.3, [1.3, 9.0, 0], 0.36), () => {
+    shadow(0.7, 8.4, 1.9, 9.6, 3.5, 0, 0.12);
+    cyl(1.3, 9.0, 0, 1.4, 0.62, PAL.pot);
+    const lp = eBack(seg(T, 2.7, 3.1));
+    if (lp > 0) { for (const [dx, dy, z, r, c] of [[0, 0, 2.1, 0.75, PAL.plant], [-0.35, 0.25, 2.9, 0.6, '#72c28b'], [0.3, -0.2, 3.4, 0.55, PAL.plant], [0.05, 0.1, 4.0, 0.45, '#86d39e']])
+      sphere(1.3 + dx, 9.0 + dy, 1.4 + (z - 1.4) * lp, r * lp, c); }
+  });
+  // floating sign: extruded speech bubble with the three diamonds
+  const bP = seg(T, 3.0, 3.5);
+  if (bP > 0) {
+    const sc = eBack(bP, 2.2), bob = Math.sin((T - 3.0) * 2.6) * 0.18, zc = lerp(4.6, 8.4, eOut(bP)) + bob;
+    const drawSign = (dy, fill, diamonds) => onFace([0.9, 6.0 + dy, zc + 1.2], [1, 0, 0], [0, 0, -1], () => {
+      ctx.save(); ctx.translate(90, 90); ctx.scale(sc, sc); ctx.translate(-90, -90);
+      ctx.fillStyle = fill; ctx.beginPath(); ctx.roundRect(-40, 0, 260, 170, 40); ctx.moveTo(10, 160); ctx.lineTo(0, 225); ctx.lineTo(70, 165); ctx.closePath(); ctx.fill();
+      if (diamonds) [[28, PAL.cream], [90, PAL.ink], [152, PAL.cream]].forEach(([x, c]) => { ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(x, 60); ctx.lineTo(x + 22, 85); ctx.lineTo(x, 110); ctx.lineTo(x - 22, 85); ctx.closePath(); ctx.fill(); });
+      ctx.restore(); });
+    // floor shadow of the floating sign (a soft-edged crisp ellipse)
+    const fp = P(2.6, 6.9, 3.32); ctx.fillStyle = `rgba(70,40,60,${0.1 * sc})`; ctx.beginPath(); ctx.ellipse(fp[0], fp[1], S * 1.1 * sc, S * 0.45 * sc, 0, 0, 7); ctx.fill();
+    for (let i = 8; i >= 1; i--) drawSign(-i * 0.05, sh(PAL.coral, 0.35), false);
+    drawSign(0, PAL.coral, true);
+  }
+}
+
+// ---------- neighbour mini-worlds ----------
+const TILES = [
+  { g: [-1, -1], slab: '#9fcf8c', word: 'Doğa', f: t => { for (const [x, y, h] of [[3, 3, 3], [6.5, 4, 4], [4, 7, 2.6], [7.5, 7.5, 3.4]]) { cyl(x, y, 0, h * 0.4, 0.3, '#a8744f'); cone(x, y, h * 0.35, h * 1.2, 1.2, '#4f9e6a'); } } },
+  { g: [0, -1], slab: '#f2d2a9', word: 'Aile', f: t => { box(2.5, 2.5, 0, 7.5, 7, 3.5, '#fff1de'); poly([[2.3, 2.3, 3.5], [7.7, 2.3, 3.5], [7.7, 4.75, 6], [2.3, 4.75, 6]], '#ff8f6f'); poly([[2.3, 4.75, 6], [7.7, 4.75, 6], [7.7, 7.2, 3.5], [2.3, 7.2, 3.5]], sh('#ff8f6f', 0.2)); poly([[7.7, 2.3, 3.5], [7.7, 4.75, 6], [7.7, 7.2, 3.5]], sh('#fff1de', 0.3)); onFace([7.51, 5.8, 2.4], [0, -1, 0], [0, 0, -1], () => { ctx.fillStyle = '#6d8bd8'; ctx.fillRect(0, 0, 120, 240); }); } },
+  { g: [1, -1], slab: '#b9a6e6', word: 'Müzik', f: t => { box(2, 2, 0, 8, 8, 1.2, '#7c64c4'); cyl(5, 5, 1.2, 1.3, 1.6, '#f2b544'); box(4.9, 4.9, 1.3, 5.1, 5.1, 3.6, '#3b3f58', { noEdge: true }); sphere(5, 5, 3.8, 0.35, '#8f96b8'); } },
+  { g: [-1, 0], slab: '#ffc4c9', word: 'Yemek', f: t => { cyl(5, 5, 0, 2.6, 0.25, '#b0876a'); cyl(5, 5, 2.6, 2.8, 2.0, '#fff6ea'); sphere(4.5, 4.6, 3.1, 0.4, '#ff7b6b'); sphere(5.6, 5.3, 3.05, 0.35, '#f2b544'); cyl(2.2, 5.5, 0, 1.6, 0.6, '#86c3c3'); cyl(7.8, 4.5, 0, 1.6, 0.6, '#86c3c3'); } },
+  { g: [1, 0], slab: '#a7dcd5', word: 'Tatil', f: t => { poly([[1.5, 1.5, 0.02], [8.5, 1.5, 0.02], [8.5, 8.5, 0.02], [1.5, 8.5, 0.02]], '#5fb7e0'); poly([[2.5, 3, 0.03], [6, 3, 0.03], [6, 3.3, 0.03], [2.5, 3.3, 0.03]], 'rgba(255,255,255,0.6)'); box(3, 5, 0, 7, 6.2, 0.8, '#fff1de'); cyl(7.2, 3, 0, 3.5, 0.12, '#fff6ea'); cone(7.2, 3, 3.1, 4.2, 1.6, '#ff7b6b'); } },
+  { g: [-1, 1], slab: '#f7e08a', word: 'Tarih', f: t => { const c = ['#ff7b6b', '#6d8bd8', '#5fb07a', '#a77bd6', '#f2b544']; for (let i = 0; i < 5; i++) box(3 + (i % 2) * 0.3, 3 + (i % 3) * 0.2, i * 0.75, 7 - (i % 2) * 0.2, 6.5, i * 0.75 + 0.7, c[i]); } },
+  { g: [0, 1], slab: '#cfe3a3', word: 'Spor', f: t => { poly([[1.5, 1.5, 0.02], [8.5, 1.5, 0.02], [8.5, 8.5, 0.02], [1.5, 8.5, 0.02]], '#7fbf6a'); poly([[4.9, 1.5, 0.03], [5.1, 1.5, 0.03], [5.1, 8.5, 0.03], [4.9, 8.5, 0.03]], '#fff'); box(1.8, 4.2, 0, 2.1, 5.8, 2.2, '#fff6ea'); box(7.9, 4.2, 0, 8.2, 5.8, 2.2, '#fff6ea'); sphere(5.6, 4.6, 0.5 + Math.abs(Math.sin(t * 5)) * 1.4, 0.45, '#fff'); } },
+  { g: [1, 1], slab: '#ffd0a6', word: 'Bilim', f: t => { cyl(5, 5, 0, 1.0, 2.2, '#dcd3ea'); box(4.4, 4.4, 1.0, 5.6, 5.6, 3.4, '#6d8bd8'); cone(5, 5, 3.4, 5.8, 0.9, '#ff7b6b'); for (let i = 0; i < 3; i++) sphere(5 + Math.cos(t * 2 + i * 2.1) * 2.6, 5 + Math.sin(t * 2 + i * 2.1) * 2.6, 2.4, 0.3, ['#f2b544', '#5fb07a', '#ff9fb2'][i]); } },
+];
+const ORDER = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]; // painter's order (back → front)
+const APPEAR = { '0,-1': 0, '1,0': 1, '0,1': 2, '-1,0': 3, '1,-1': 4, '1,1': 5, '-1,1': 6, '-1,-1': 7 }; // clockwise reveal
+const GAP = 12.5;
+function miniTile(tile, t) {
+  const i = APPEAR[tile.g.join(',')], t0 = 5.75 + i * 0.1;
+  const p = seg(t, t0, t0 + 0.4); if (p <= 0) return null; const land = t - t0 - 0.4;
+  const outI = 7 - i, o0 = 7.75 + outI * 0.06, q = seg(t, o0, o0 + 0.5);
+  if (q >= 1) return null;
+  const dz = (1 - p * p) * 8 + (land > 0 ? Math.exp(-land * 8) * Math.sin(land * 22) * -0.35 : 0) + (q > 0 ? (q < 0.25 ? Math.sin(q / 0.25 * Math.PI) * 0.8 : -eIn((q - 0.25) / 0.75) * 22) : 0);
+  TILE = { ox: tile.g[0] * GAP, oy: tile.g[1] * GAP, dz };
+  ctx.globalAlpha = clamp(p * 3) * (1 - seg(q, 0.6, 1));
+  box(0, 0, -0.8, 10, 10, 0, tile.slab, { left: sh(tile.slab, 0.2), right: sh(tile.slab, 0.38) });
+  tile.f(t);
+  ctx.globalAlpha = 1;
+  const lab = P(5, 5, 6.5);
+  TILE = { ox: 0, oy: 0, dz: 0 };
+  return { lab, t0: t0 + 0.4, q, word: tile.word };
+}
+function label(l, t) {
+  const p = seg(t, l.t0, l.t0 + 0.35); if (p <= 0 || l.q > 0.3) return;
+  const s = eBack(p, 2.4) * (1 - seg(l.q, 0, 0.3));
+  ctx.save(); ctx.translate(l.lab[0], l.lab[1]); ctx.scale(s, s);
+  ctx.font = `700 30px ${FF}`; const w = ctx.measureText(l.word).width + 40;
+  ctx.fillStyle = 'rgba(59,41,70,0.22)'; ctx.beginPath(); ctx.roundRect(-w / 2 + 5, -30, w, 52, 26); ctx.fill();
+  ctx.fillStyle = '#fff6ea'; ctx.beginPath(); ctx.roundRect(-w / 2, -36, w, 52, 26); ctx.moveTo(-8, 14); ctx.lineTo(0, 30); ctx.lineTo(10, 14); ctx.fill();
+  ctx.fillStyle = PAL.ink; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(l.word, 0, -9);
+  ctx.restore();
+}
+
+// ---------- background ----------
+let BG;
+function buildBG() {
+  BG = off(W, H); const g = BG.getContext('2d');
+  g.fillStyle = PAL.bg; g.fillRect(0, 0, W, H);
+  const r = g.createRadialGradient(960, 480, 100, 960, 540, 1150); r.addColorStop(0, 'rgba(255,250,242,0.9)'); r.addColorStop(1, 'rgba(214,190,170,0.5)');
+  g.fillStyle = r; g.fillRect(0, 0, W, H);
+}
+function lattice(alpha) {
+  ctx.save(); ctx.strokeStyle = `rgba(120,90,80,${alpha})`; ctx.lineWidth = 1.5;
+  const step = GAP / 5, N = 40;
+  for (let i = -N; i <= N; i++) { const v = i * step - 0.1 * GAP + 5;
+    let a = P(v, -N * step, -0.8), b = P(v, N * step, -0.8); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    a = P(-N * step, v, -0.8); b = P(N * step, v, -0.8); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+  ctx.restore();
+}
+
+function frame(t) {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1; ctx.drawImage(BG, 0, 0);
+  // camera: slight push-in while the studio comes alive, then a long pull-back
+  const push = eInOut(seg(t, 2.9, 4.9)), pull = eInOut(seg(t, 5.0, 6.5));
+  const zoom = lerp(lerp(1, 1.16, push), 0.44, pull);
+  S = 46 * zoom; CAM.x = lerp(lerp(5, 4.2, push), 5, pull); CAM.y = lerp(lerp(5, 5.3, push), 5, pull); CAM.z = lerp(lerp(2.5, 3.2, push), 0.6, pull);
+  lattice(0.07 * seg(t, 0, 0.8) * (1 - seg(t, 9.0, 9.4)));
+  // center room sinks last in the outro
+  const cq = seg(t, 8.35, 8.95);
+  const labels = [];
+  const drawRoom = () => { TILE = { ox: 0, oy: 0, dz: cq > 0 ? (cq < 0.25 ? Math.sin(cq / 0.25 * Math.PI) * 0.8 : -eIn((cq - 0.25) / 0.75) * 24) : 0 };
+    ctx.globalAlpha = 1 - seg(cq, 0.6, 1); if (cq < 1) room(t, t); TILE = { ox: 0, oy: 0, dz: 0 }; ctx.globalAlpha = 1; };
+  const items = ORDER.map(g => ({ k: g[0] + g[1], fn: () => { const l = miniTile(TILES.find(x => x.g[0] === g[0] && x.g[1] === g[1]), t); if (l) labels.push(l); } }));
+  items.push({ k: 0.01, fn: drawRoom });
+  items.sort((a, b) => a.k - b.k).forEach(it => it.fn());
+  labels.forEach(l => label(l, t));
+  // caption
+  const cp = seg(t, 6.3, 6.8), co = seg(t, 8.1, 8.5);
+  if (cp > 0 && co < 1) {
+    ctx.save(); ctx.globalAlpha = eOut(cp) * (1 - co); ctx.translate(960, 985 + (1 - eOut(cp)) * 30);
+    ctx.font = `700 64px ${FF}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = PAL.ink; ctx.letterSpacing = '-1px';
+    ctx.fillText('Her konu, küçük bir dünya.', 0, 0); ctx.restore();
+  }
+  const fade = Math.max(1 - seg(t, 0, 0.3), seg(t, 9.25, 9.5));
+  if (fade > 0) { ctx.globalAlpha = fade; ctx.fillStyle = PAL.bg; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+}
+
+window.draw = function (job) { frame(job.t); return cv.toDataURL('image/jpeg', job.q || 0.92).split(',')[1]; };
+window.ready = document.fonts.ready.then(() => Promise.all([
+  document.fonts.load(`700 60px 'Space Grotesk'`, 'Her konu, küçük bir dünya. Uzay turizmi KONU Doğa Müzik Yemek Tatil Tarih Spor Bilim Aile ığüşöçİĞŞ'),
+  document.fonts.load(`500 60px 'Space Grotesk'`, 'abc')])).then(buildBG);
+</script></body></html>
